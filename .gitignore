@@ -32,7 +32,14 @@ captured_alerts/
 unknown_faces/
 reports/
 logs/
+
+# GitHub Actions (keep these)
+!.github/workflows/*.yml
+
+# YAML files (except workflows)
 *.yml
+
+# Pickle files
 *.pkl
 *.jpg
 *.jpeg
