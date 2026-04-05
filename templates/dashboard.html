@@ -28,9 +28,14 @@
         .btn-primary { background: #1a237e; color: white; }
         .btn-success { background: #4caf50; color: white; }
         .btn-danger { background: #f44336; color: white; }
+        .btn-warning { background: #ff9800; color: white; }
         .btn:hover { opacity: 0.9; }
         .actions { margin-top: 20px; }
         .date { color: #666; font-size: 14px; }
+        .demo-badge { background: #ff9800; color: white; padding: 5px 10px; border-radius: 3px; font-size: 12px; }
+        .status { display: inline-block; padding: 5px 10px; border-radius: 3px; font-size: 12px; }
+        .status.running { background: #4caf50; color: white; }
+        .status.stopped { background: #f44336; color: white; }
     </style>
 </head>
 <body>
@@ -62,11 +67,16 @@
         <div class="card">
             <h2>Quick Actions</h2>
             <div class="actions">
-                <button class="btn btn-primary" onclick="startCamera('attendance')">Start Attendance Mode</button>
-                <button class="btn btn-primary" onclick="startCamera('monitoring')">Start Monitoring</button>
-                <button class="btn btn-success" onclick="sendReport()">Send Daily Report</button>
-                <button class="btn btn-danger" onclick="testEmail()">Test Email</button>
+                <button class="btn btn-primary" onclick="startCamera('attendance', false)">Start Attendance</button>
+                <button class="btn btn-primary" onclick="startCamera('monitoring', false)">Start Monitoring</button>
+                <button class="btn btn-warning" onclick="startCamera('attendance', true)">Demo Mode</button>
+                <button class="btn btn-success" onclick="sendReport()">Send Report</button>
+                <button class="btn btn-danger" onclick="stopCamera()">Stop Camera</button>
             </div>
+            <p style="margin-top: 15px; color: #666;">
+                Status: <span id="camera-status" class="status stopped">Stopped</span>
+                <span id="demo-indicator"></span>
+            </p>
         </div>
         
         <div class="card">
@@ -121,11 +131,31 @@
             } catch (e) { container.innerHTML = '<p>Error loading data.</p>'; }
         }
         
-        async function startCamera(mode) {
+        async function startCamera(mode, demo) {
             try {
-                await fetch('/api/v1/camera/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode}) });
-                alert('Camera started in ' + mode + ' mode');
+                const res = await fetch('/api/v1/camera/start', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({mode, demo}) 
+                });
+                const data = await res.json();
+                document.getElementById('camera-status').textContent = data.mode.toUpperCase() + ' - ' + data.status;
+                document.getElementById('camera-status').className = 'status running';
+                if (data.demo) {
+                    document.getElementById('demo-indicator').innerHTML = ' <span class="demo-badge">DEMO MODE</span>';
+                }
+                alert('Camera started in ' + data.mode + ' mode' + (data.demo ? ' (DEMO)' : ''));
             } catch (e) { alert('Error starting camera'); }
+        }
+        
+        async function stopCamera() {
+            try {
+                await fetch('/api/v1/camera/stop', { method: 'POST' });
+                document.getElementById('camera-status').textContent = 'Stopped';
+                document.getElementById('camera-status').className = 'status stopped';
+                document.getElementById('demo-indicator').innerHTML = '';
+                alert('Camera stopped');
+            } catch (e) { alert('Error stopping camera'); }
         }
         
         async function sendReport() {

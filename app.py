@@ -101,9 +101,10 @@ def start_camera():
         return jsonify({"status": "already_running"})
     
     mode = request.json.get("mode", "attendance") if request.method == "POST" else "attendance"
-    engine.start_camera(mode=mode)
+    demo_mode = request.json.get("demo", False)
+    engine.start_camera(mode=mode, demo_mode=demo_mode)
     
-    return jsonify({"status": "started", "mode": mode})
+    return jsonify({"status": "started", "mode": mode, "demo": engine.demo_mode if hasattr(engine, 'demo_mode') else False})
 
 
 @app.route("/api/v1/camera/stop", methods=["POST"])

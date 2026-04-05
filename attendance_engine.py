@@ -95,7 +95,7 @@ class AttendanceEngine:
         
         logger.info(f"Removed {name} from system")
     
-    def start_camera(self, mode="attendance"):
+    def start_camera(self, mode="attendance", demo_mode=False):
         """Start camera in specified mode"""
         if self.running:
             logger.warning("Camera already running")
@@ -103,14 +103,19 @@ class AttendanceEngine:
         
         self.running = True
         self.mode = mode
-        self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
+        self.demo_mode = demo_mode
         
-        if not self.camera.isOpened():
-            logger.error("Cannot open camera")
-            self.running = False
-            return
+        if not demo_mode:
+            self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
+            
+            if not self.camera.isOpened():
+                logger.error("Cannot open camera - starting in DEMO mode")
+                self.demo_mode = True
         
-        logger.info(f"Camera started in {mode} mode")
+        if self.demo_mode:
+            logger.info(f"DEMO mode started in {mode} mode (no camera)")
+        else:
+            logger.info(f"Camera started in {mode} mode")
         
         thread = threading.Thread(target=self._camera_loop, daemon=True)
         thread.start()
@@ -128,7 +133,45 @@ class AttendanceEngine:
     
     def _camera_loop(self):
         """Main camera processing loop"""
+        demo_timer = 0
+        
         while self.running:
+            if self.demo_mode:
+                frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(frame, "DEMO MODE - No Camera Connected", (120, 180),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                cv2.putText(frame, f"Mode: {self.mode.upper()}", (230, 230),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(frame, datetime.now().strftime("%d %b %Y %H:%M:%S"), (200, 270),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+                cv2.putText(frame, f"Registered: {len(self.label_names)} | Marked: {len(self.marked_today)}", (170, 310),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+                cv2.putText(frame, "Press Q to exit | Demo Mode Active", (170, 350),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 100), 1)
+                
+                self.frame_count += 1
+                demo_timer += 1
+                
+                if self.mode == "attendance" and demo_timer % 60 == 0:
+                    for label_id, info in list(self.label_names.items())[:1]:
+                        name = info['name']
+                        role = info['role']
+                        roll = info['roll']
+                        if name not in self.marked_today:
+                            self._mark_attendance(name, role, roll)
+                            cv2.putText(frame, f"[AUTO] Marked: {name}", (200, 400),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                
+                self._show_frame(frame)
+                
+                time.sleep(0.03)
+                
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    self.stop_camera()
+                    break
+                continue
+            
             ret, frame = self.camera.read()
             if not ret:
                 break
