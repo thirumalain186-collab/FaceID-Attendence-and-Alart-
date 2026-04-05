@@ -67,11 +67,12 @@
         <div class="card">
             <h2>Quick Actions</h2>
             <div class="actions">
-                <button class="btn btn-primary" onclick="startCamera('attendance', false)">Start Attendance</button>
-                <button class="btn btn-primary" onclick="startCamera('monitoring', false)">Start Monitoring</button>
-                <button class="btn btn-warning" onclick="startCamera('attendance', true)">Demo Mode</button>
+                <button class="btn btn-primary" onclick="startCamera('attendance', false, false)">Start Attendance</button>
+                <button class="btn btn-primary" onclick="startCamera('monitoring', false, false)">Start Monitoring</button>
+                <button class="btn btn-warning" onclick="startCamera('attendance', true, false)">Demo Mode (GUI)</button>
+                <button class="btn btn-success" onclick="startCamera('attendance', false, true)">Headless Mode</button>
                 <button class="btn btn-success" onclick="sendReport()">Send Report</button>
-                <button class="btn btn-danger" onclick="stopCamera()">Stop Camera</button>
+                <button class="btn btn-danger" onclick="stopCamera()">Stop</button>
             </div>
             <p style="margin-top: 15px; color: #666;">
                 Status: <span id="camera-status" class="status stopped">Stopped</span>
@@ -131,20 +132,21 @@
             } catch (e) { container.innerHTML = '<p>Error loading data.</p>'; }
         }
         
-        async function startCamera(mode, demo) {
+        async function startCamera(mode, demo, headless) {
             try {
                 const res = await fetch('/api/v1/camera/start', { 
                     method: 'POST', 
                     headers: {'Content-Type': 'application/json'}, 
-                    body: JSON.stringify({mode, demo}) 
+                    body: JSON.stringify({mode, demo, headless}) 
                 });
                 const data = await res.json();
                 document.getElementById('camera-status').textContent = data.mode.toUpperCase() + ' - ' + data.status;
                 document.getElementById('camera-status').className = 'status running';
-                if (data.demo) {
-                    document.getElementById('demo-indicator').innerHTML = ' <span class="demo-badge">DEMO MODE</span>';
-                }
-                alert('Camera started in ' + data.mode + ' mode' + (data.demo ? ' (DEMO)' : ''));
+                let indicator = '';
+                if (data.headless) indicator = ' <span class="demo-badge" style="background:#9c27b0">HEADLESS</span>';
+                else if (data.demo) indicator = ' <span class="demo-badge">DEMO</span>';
+                document.getElementById('demo-indicator').innerHTML = indicator;
+                alert('Started: ' + data.mode + (data.headless ? ' (HEADLESS - no display)' : data.demo ? ' (DEMO)' : ''));
             } catch (e) { alert('Error starting camera'); }
         }
         

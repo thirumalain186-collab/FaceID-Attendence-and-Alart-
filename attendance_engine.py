@@ -137,39 +137,56 @@ class AttendanceEngine:
         
         while self.running:
             if self.demo_mode:
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                cv2.putText(frame, "DEMO MODE - No Camera Connected", (120, 180),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-                cv2.putText(frame, f"Mode: {self.mode.upper()}", (230, 230),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(frame, datetime.now().strftime("%d %b %Y %H:%M:%S"), (200, 270),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-                cv2.putText(frame, f"Registered: {len(self.label_names)} | Marked: {len(self.marked_today)}", (170, 310),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
-                cv2.putText(frame, "Press Q to exit | Demo Mode Active", (170, 350),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 100, 100), 1)
+                if self.demo_mode == "headless":
+                    self.frame_count += 1
+                    demo_timer += 1
+                    logger.info(f"DEMO (headless): {self.mode} - Frames: {self.frame_count}, Marked: {len(self.marked_today)}")
+                    
+                    if self.mode == "attendance" and len(self.label_names) > 0 and demo_timer % 10 == 0:
+                        for label_id, info in list(self.label_names.items())[:1]:
+                            name = info['name']
+                            role = info['role']
+                            roll = info['roll']
+                            if name not in self.marked_today:
+                                self._mark_attendance(name, role, roll)
+                    
+                    time.sleep(2)
+                    continue
                 
-                self.frame_count += 1
-                demo_timer += 1
-                
-                if self.mode == "attendance" and demo_timer % 60 == 0:
-                    for label_id, info in list(self.label_names.items())[:1]:
-                        name = info['name']
-                        role = info['role']
-                        roll = info['roll']
-                        if name not in self.marked_today:
-                            self._mark_attendance(name, role, roll)
-                            cv2.putText(frame, f"[AUTO] Marked: {name}", (200, 400),
-                                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                
-                self._show_frame(frame)
-                
-                time.sleep(0.03)
-                
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    self.stop_camera()
-                    break
+                try:
+                    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                    cv2.putText(frame, "DEMO MODE - No Camera Connected", (120, 180),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    cv2.putText(frame, f"Mode: {self.mode.upper()}", (230, 230),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                    cv2.putText(frame, datetime.now().strftime("%d %b %Y %H:%M:%S"), (200, 270),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+                    cv2.putText(frame, f"Registered: {len(self.label_names)} | Marked: {len(self.marked_today)}", (170, 310),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
+                    
+                    self.frame_count += 1
+                    demo_timer += 1
+                    
+                    if self.mode == "attendance" and demo_timer % 60 == 0:
+                        for label_id, info in list(self.label_names.items())[:1]:
+                            name = info['name']
+                            role = info['role']
+                            roll = info['roll']
+                            if name not in self.marked_today:
+                                self._mark_attendance(name, role, roll)
+                                cv2.putText(frame, f"[AUTO] Marked: {name}", (200, 400),
+                                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    
+                    self._show_frame(frame)
+                    time.sleep(0.03)
+                    
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q'):
+                        self.stop_camera()
+                        break
+                except Exception as e:
+                    logger.warning(f"GUI not available, switching to headless: {e}")
+                    self.demo_mode = "headless"
                 continue
             
             ret, frame = self.camera.read()
