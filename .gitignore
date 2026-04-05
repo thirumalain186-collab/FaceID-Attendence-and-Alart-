@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# Data (don't commit sensitive data)
+attendance.db
+dataset/
+trainer/
+known_faces/
+attendance_logs/
+captured_alerts/
+unknown_faces/
+reports/
+*.yml
+*.pkl
+*.jpg
+*.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

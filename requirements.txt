@@ -1,0 +1,26 @@
+# Smart Attendance System v2 - Requirements
+# Install: pip install -r requirements.txt
+
+# Core Computer Vision
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+numpy>=1.24.0
+
+# Image Processing
+Pillow>=10.0.0
+
+# PDF Generation
+reportlab>=4.0.0
+fpdf2>=2.7.0
+
+# Scheduling
+APScheduler>=3.10.0
+
+# Web Dashboard
+flask>=3.0.0
+
+# Data
+pandas>=2.0.0
+
+# Standard Library (built-in):
+# - sqlite3, smtplib, email, datetime, pathlib, threading
