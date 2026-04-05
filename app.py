@@ -43,48 +43,54 @@ def index():
     return render_template("dashboard.html", stats=stats)
 
 
-@app.route("/api/stats")
+@app.route("/api/v1/health")
+def api_health():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
+
+@app.route("/api/v1/stats")
 def api_stats():
     """API endpoint for statistics"""
     return jsonify(get_stats())
 
 
-@app.route("/api/attendance/today")
+@app.route("/api/v1/attendance/today")
 def api_today_attendance():
     """Get today's attendance records"""
     today = date.today().isoformat()
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
-        SELECT name, role, class_name, time_in, status
+        SELECT name, role, roll_number, time_in, status
         FROM attendance WHERE date=? ORDER BY time_in
     """, (today,))
     records = [
-        {"name": r[0], "role": r[1], "class": r[2], "time": r[3], "status": r[4]}
+        {"name": r[0], "role": r[1], "roll": r[2], "time": r[3], "status": r[4]}
         for r in c.fetchall()
     ]
     conn.close()
-    return jsonify(records)
+    return jsonify({"data": records, "count": len(records)})
 
 
-@app.route("/api/people")
+@app.route("/api/v1/people")
 def api_people():
     """Get all registered people"""
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
         SELECT id, name, role, roll_number, class_name, registered_at
-        FROM people ORDER BY role, name
+        FROM people WHERE active=1 ORDER BY role, name
     """)
     people = [
         {"id": r[0], "name": r[1], "role": r[2], "roll": r[3], "class": r[4], "registered": r[5]}
         for r in c.fetchall()
     ]
     conn.close()
-    return jsonify(people)
+    return jsonify({"data": people, "count": len(people)})
 
 
-@app.route("/api/camera/start", methods=["POST"])
+@app.route("/api/v1/camera/start", methods=["POST"])
 def start_camera():
     """Start camera in background thread"""
     from attendance_engine import get_engine
@@ -100,7 +106,7 @@ def start_camera():
     return jsonify({"status": "started", "mode": mode})
 
 
-@app.route("/api/camera/stop", methods=["POST"])
+@app.route("/api/v1/camera/stop", methods=["POST"])
 def stop_camera():
     """Stop camera"""
     from attendance_engine import get_engine
@@ -111,7 +117,7 @@ def stop_camera():
     return jsonify({"status": "stopped"})
 
 
-@app.route("/api/reports/export")
+@app.route("/api/v1/reports/export")
 def export_report():
     """Export attendance to CSV"""
     start = request.args.get("start", (date.today() - timedelta(days=7)).isoformat())
@@ -138,14 +144,14 @@ def export_report():
     )
 
 
-@app.route("/api/email/test", methods=["POST"])
+@app.route("/api/v1/email/test", methods=["POST"])
 def api_test_email():
     """Test email configuration"""
     success = email_sender.test_email()
     return jsonify({"success": success})
 
 
-@app.route("/api/email/send_report", methods=["POST"])
+@app.route("/api/v1/email/send-report", methods=["POST"])
 def api_send_report():
     """Send daily report"""
     import pdf_generator
@@ -154,7 +160,7 @@ def api_send_report():
     return jsonify({"success": True})
 
 
-@app.route("/api/settings", methods=["GET"])
+@app.route("/api/v1/settings", methods=["GET"])
 def api_get_settings():
     """Get email settings"""
     settings = {
@@ -167,7 +173,7 @@ def api_get_settings():
     return jsonify(settings)
 
 
-@app.route("/api/settings", methods=["POST"])
+@app.route("/api/v1/settings", methods=["POST"])
 def api_save_settings():
     """Save email settings"""
     data = request.json
@@ -179,7 +185,6 @@ def api_save_settings():
     config.EMAIL_CONFIG["enabled"] = data.get("enabled", False)
     config.ATTENDANCE_CONFIG["class_name"] = data.get("class_name", "")
     
-    # Save to database
     conn = get_db_connection()
     c = conn.cursor()
     settings = [
