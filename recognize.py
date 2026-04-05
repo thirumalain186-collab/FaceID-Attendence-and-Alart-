@@ -9,6 +9,9 @@ import numpy as np
 from datetime import datetime
 import config
 import email_alert
+from logger import get_logger
+
+logger = get_logger()
 
 
 class AttendanceSystem:
@@ -31,29 +34,28 @@ class AttendanceSystem:
             bool: True if loaded successfully, False otherwise
         """
         if not os.path.exists(config.TRAINER_FILE):
-            print(f"[ERROR] Trained model not found: {config.TRAINER_FILE}")
-            print("[HINT] Run 'train.py' first to train the model.")
+            logger.error(f"Model not found: {config.TRAINER_FILE}")
             return False
         
         try:
             self.recognizer = cv2.face.LBPHFaceRecognizer_create()
             self.recognizer.read(config.TRAINER_FILE)
-            print("[INFO] Model loaded successfully")
+            logger.info("Model loaded successfully")
         except Exception as e:
-            print(f"[ERROR] Failed to load model: {e}")
+            logger.exception(f"Failed to load model: {e}")
             return False
         
         if not os.path.exists(config.HAAR_CASCADE_PATH):
-            print(f"[ERROR] Haar Cascade file not found: {config.HAAR_CASCADE_PATH}")
+            logger.error(f"Haar Cascade not found: {config.HAAR_CASCADE_PATH}")
             return False
         
         self.cascade = cv2.CascadeClassifier(config.HAAR_CASCADE_PATH)
         
         if self.cascade.empty():
-            print("[ERROR] Failed to load Haar Cascade classifier")
+            logger.error("Failed to load Haar Cascade")
             return False
         
-        print("[INFO] Haar Cascade loaded successfully")
+        logger.info("Haar Cascade loaded")
         
         self.load_label_names()
         
@@ -106,11 +108,11 @@ class AttendanceSystem:
             with open(config.ATTENDANCE_FILE, 'a', newline='') as f:
                 f.write(attendance_record + '\n')
             
-            print(f"[ATTENDANCE MARKED] {name} ({role}) at {time_str}")
+            logger.info(f"Attendance marked: {name} ({role}) at {time_str}")
             return True
             
         except Exception as e:
-            print(f"[ERROR] Failed to save attendance: {e}")
+            logger.exception(f"Failed to save attendance: {e}")
             return False
     
     def save_unknown_image(self, face_roi, person_id):
@@ -138,7 +140,7 @@ class AttendanceSystem:
             return None
             
         except Exception as e:
-            print(f"[ERROR] Failed to save unknown image: {e}")
+            logger.exception(f"Failed to save unknown image: {e}")
             return None
     
     def process_unknown(self, face_roi, confidence):
@@ -154,10 +156,10 @@ class AttendanceSystem:
         image_path = self.save_unknown_image(face_roi, person_id)
         
         if image_path:
-            print(f"[WARNING] Unknown person detected! Confidence: {confidence:.2f}")
-            print(f"[INFO] Unknown face saved to: {image_path}")
+            logger.warning(f"Unknown person detected! Confidence: {confidence:.2f}")
+            logger.info(f"Unknown face saved to: {image_path}")
             
-            print("[INFO] Sending email alert...")
+            logger.info("Sending email alert...")
             email_alert.send_unknown_alert(image_path, "Unknown Person")
     
     def run(self):
@@ -168,13 +170,13 @@ class AttendanceSystem:
             None
         """
         if not self.load_model():
-            print("[ERROR] Failed to initialize recognition system")
+            logger.error("Failed to initialize recognition system")
             return
         
         cap = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
         
         if not cap.isOpened():
-            print("[ERROR] Cannot access webcam")
+            logger.error("Cannot access webcam")
             return
         
         print("\n" + "=" * 60)
@@ -193,7 +195,7 @@ class AttendanceSystem:
                 ret, frame = cap.read()
                 
                 if not ret:
-                    print("[ERROR] Failed to capture frame")
+                    logger.error("Failed to capture frame")
                     break
                 
                 frame_count += 1
@@ -257,7 +259,7 @@ class AttendanceSystem:
                                 unknown_detection_count = 0
                                 
                     except cv2.error as e:
-                        print(f"[ERROR] Recognition error: {e}")
+                        logger.error(f"Recognition error: {e}")
                         continue
                 
                 cv2.imshow("Smart Attendance System", frame)
@@ -265,7 +267,7 @@ class AttendanceSystem:
                 key = cv2.waitKey(1) & 0xFF
                 
                 if key == ord('q'):
-                    print("\n[INFO] Quitting...")
+                    logger.info("Quitting...")
                     break
                     
                 elif key == ord('s'):
@@ -274,7 +276,7 @@ class AttendanceSystem:
                         f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
                     )
                     cv2.imwrite(screenshot_path, frame)
-                    print(f"[INFO] Screenshot saved: {screenshot_path}")
+                    logger.info(f"Screenshot saved: {screenshot_path}")
                     
                 elif key == ord('a'):
                     print("\n" + "=" * 60)
@@ -288,10 +290,10 @@ class AttendanceSystem:
                     print("=" * 60)
                     
         except KeyboardInterrupt:
-            print("\n[INFO] Interrupted by user")
+            logger.info("Interrupted by user")
             
         except Exception as e:
-            print(f"[ERROR] Unexpected error: {e}")
+            logger.exception(f"Unexpected error: {e}")
             
         finally:
             cap.release()
@@ -313,17 +315,17 @@ def show_attendance_records():
     Returns:
         None
     """
-    if not os.path.exists(config.ATTENDANCE_FILE):
-        print("[INFO] No attendance records found.")
-        return
-    
-    try:
-        with open(config.ATTENDANCE_FILE, 'r') as f:
-            lines = f.readlines()
-        
-        if not lines:
-            print("[INFO] Attendance file is empty.")
+        if not os.path.exists(config.ATTENDANCE_FILE):
+            logger.info("No attendance records found")
             return
+        
+        try:
+            with open(config.ATTENDANCE_FILE, 'r') as f:
+                lines = f.readlines()
+            
+            if not lines:
+                logger.info("Attendance file is empty")
+                return
         
         print("\n" + "=" * 80)
         print("                      ATTENDANCE RECORDS")
@@ -346,7 +348,7 @@ def show_attendance_records():
         print("=" * 80)
         
     except Exception as e:
-        print(f"[ERROR] Failed to read attendance file: {e}")
+        logger.exception(f"Failed to read attendance file: {e}")
 
 
 if __name__ == "__main__":
@@ -374,4 +376,4 @@ if __name__ == "__main__":
             system = AttendanceSystem()
             system.run()
         except Exception as e:
-            print(f"\n[ERROR] Failed to start attendance system: {e}")
+            logger.exception(f"Failed to start attendance system: {e}")

@@ -12,6 +12,9 @@ import database
 import email_sender
 import pdf_generator
 import attendance_engine
+from logger import get_logger
+
+logger = get_logger()
 
 
 # Global scheduler instance
@@ -20,62 +23,50 @@ scheduler = None
 
 def start_attendance_mode():
     """Start camera in attendance marking mode (9:00 AM)"""
-    print("\n" + "="*50)
-    print("[SCHEDULER] Starting ATTENDANCE mode (9:00 AM)")
-    print("="*50)
+    logger.info("Starting ATTENDANCE mode (scheduled)")
     
     engine = attendance_engine.get_engine()
-    engine.marked_today = set()  # Reset marked list
+    engine.marked_today = set()
     engine.start_camera(mode="attendance")
     
-    print("[SCHEDULER] Attendance mode active - will mark students present")
+    logger.info("Attendance mode active - marking students present")
 
 
 def stop_attendance_send_report():
     """Stop attendance mode and send daily report (9:30 AM)"""
-    print("\n" + "="*50)
-    print("[SCHEDULER] Stopping ATTENDANCE mode (9:30 AM)")
-    print("[SCHEDULER] Sending daily report...")
-    print("="*50)
+    logger.info("Stopping ATTENDANCE mode, sending daily report")
     
     engine = attendance_engine.get_engine()
     
-    # Stop attendance mode
     if engine.running:
         engine.stop_camera()
     
-    # Switch to monitoring mode
-    threading.Event().wait(2)  # Brief pause
+    threading.Event().wait(2)
     engine.start_camera(mode="monitoring")
     
-    # Generate and send daily report
     try:
         csv_path = generate_csv_report()
         pdf_path = pdf_generator.generate_daily_report()
         email_sender.send_daily_report(csv_path, pdf_path)
-        print("[SCHEDULER] Daily report sent successfully")
+        logger.info("Daily report sent successfully")
     except Exception as e:
-        print(f"[SCHEDULER] Error sending report: {e}")
+        logger.exception(f"Error sending report: {e}")
 
 
 def stop_camera_end_day():
     """Stop camera at end of day (4:30 PM)"""
-    print("\n" + "="*50)
-    print("[SCHEDULER] End of day (4:30 PM)")
-    print("[SCHEDULER] Stopping camera...")
-    print("="*50)
+    logger.info("End of day - stopping camera")
     
     engine = attendance_engine.get_engine()
     
     if engine.running:
         engine.stop_camera()
     
-    # Generate end of day report
     try:
         pdf_path = pdf_generator.generate_end_of_day_report()
-        print(f"[SCHEDULER] End of day report: {pdf_path}")
+        logger.info(f"End of day report generated: {pdf_path}")
     except Exception as e:
-        print(f"[SCHEDULER] Error generating report: {e}")
+        logger.exception(f"Error generating report: {e}")
 
 
 def check_batch_expiry():
@@ -85,14 +76,12 @@ def check_batch_expiry():
     if not batch_progress:
         return
     
-    # Send reminder at 5 days remaining
     if batch_progress['days_remaining'] == 5:
-        print("[SCHEDULER] Batch expiring in 5 days - sending reminder")
+        logger.info("Batch expiring in 5 days - sending reminder")
         email_sender.send_batch_ending_reminder(5)
     
-    # Send reminder at 1 day remaining
     elif batch_progress['days_remaining'] == 1:
-        print("[SCHEDULER] Batch expiring tomorrow - sending reminder")
+        logger.info("Batch expiring tomorrow - sending reminder")
         email_sender.send_batch_ending_reminder(1)
 
 
@@ -100,41 +89,34 @@ def handle_batch_expiry():
     """Handle 30-day batch expiry"""
     batch = database.get_active_batch()
     
-    if not batch or not batch[4]:  # No active batch
+    if not batch or not batch[4]:
         return
     
     batch_progress = database.get_batch_progress()
     
     if batch_progress and batch_progress['is_last_day']:
-        print("\n" + "="*50)
-        print("[SCHEDULER] 30-DAY BATCH EXPIRED!")
-        print("[SCHEDULER] Generating monthly report...")
-        print("="*50)
+        logger.warning("30-DAY BATCH EXPIRED!")
         
-        # Stop camera if running
         engine = attendance_engine.get_engine()
         if engine.running:
             engine.stop_camera()
         
-        # Generate monthly report
         try:
             pdf_path = pdf_generator.generate_monthly_report()
             if pdf_path:
                 email_sender.send_monthly_report(pdf_path)
-                print("[SCHEDULER] Monthly report sent")
+                logger.info("Monthly report sent")
         except Exception as e:
-            print(f"[SCHEDULER] Error generating monthly report: {e}")
+            logger.exception(f"Error generating monthly report: {e}")
         
-        # Send renewal reminder
         try:
             email_sender.send_renewal_reminder()
-            print("[SCHEDULER] Renewal reminder sent")
+            logger.info("Renewal reminder sent")
         except Exception as e:
-            print(f"[SCHEDULER] Error sending renewal reminder: {e}")
+            logger.exception(f"Error sending renewal reminder: {e}")
         
-        # Close batch
         database.close_batch(batch[0])
-        print("[SCHEDULER] Batch closed")
+        logger.info("Batch closed")
 
 
 def generate_csv_report():
@@ -170,17 +152,15 @@ def init_scheduler():
     global scheduler
     
     if scheduler and scheduler.running:
-        print("[SCHEDULER] Already running")
+        logger.warning("Scheduler already running")
         return scheduler
     
     scheduler = BackgroundScheduler()
     
-    # Parse schedule times
     attendance_start_hour, attendance_start_min = map(int, config.SCHEDULE_CONFIG["attendance_start"].split(':'))
     attendance_stop_hour, attendance_stop_min = map(int, config.SCHEDULE_CONFIG["attendance_stop"].split(':'))
     day_end_hour, day_end_min = map(int, config.SCHEDULE_CONFIG["day_end"].split(':'))
     
-    # Schedule attendance start (9:00 AM)
     scheduler.add_job(
         start_attendance_mode,
         CronTrigger(hour=attendance_start_hour, minute=attendance_start_min),
@@ -188,7 +168,6 @@ def init_scheduler():
         name='Start Attendance Mode'
     )
     
-    # Schedule attendance stop and report (9:30 AM)
     scheduler.add_job(
         stop_attendance_send_report,
         CronTrigger(hour=attendance_stop_hour, minute=attendance_stop_min),
@@ -196,7 +175,6 @@ def init_scheduler():
         name='Stop Attendance & Send Report'
     )
     
-    # Schedule end of day (4:30 PM)
     scheduler.add_job(
         stop_camera_end_day,
         CronTrigger(hour=day_end_hour, minute=day_end_min),
@@ -204,7 +182,6 @@ def init_scheduler():
         name='End of Day'
     )
     
-    # Check batch expiry (every day at 8:00 AM)
     scheduler.add_job(
         handle_batch_expiry,
         CronTrigger(hour=8, minute=0),
@@ -212,7 +189,6 @@ def init_scheduler():
         name='Check Batch Expiry'
     )
     
-    # Check batch reminders (every day at 8:30 AM)
     scheduler.add_job(
         check_batch_expiry,
         CronTrigger(hour=8, minute=30),
@@ -221,10 +197,8 @@ def init_scheduler():
     )
     
     scheduler.start()
-    print("[SCHEDULER] APScheduler started")
-    print(f"[SCHEDULER] Attendance starts: {config.SCHEDULE_CONFIG['attendance_start']}")
-    print(f"[SCHEDULER] Attendance stops: {config.SCHEDULE_CONFIG['attendance_stop']}")
-    print(f"[SCHEDULER] Day ends: {config.SCHEDULE_CONFIG['day_end']}")
+    logger.info("APScheduler started")
+    logger.info(f"Schedule - Attendance: {config.SCHEDULE_CONFIG['attendance_start']}-{config.SCHEDULE_CONFIG['attendance_stop']}, Day ends: {config.SCHEDULE_CONFIG['day_end']}")
     
     return scheduler
 
@@ -236,7 +210,7 @@ def stop_scheduler():
     if scheduler:
         scheduler.shutdown(wait=False)
         scheduler = None
-        print("[SCHEDULER] Stopped")
+        logger.info("Scheduler stopped")
 
 
 def get_scheduler_status():
@@ -259,5 +233,5 @@ def get_scheduler_status():
 
 
 if __name__ == "__main__":
-    print("Scheduler Module Ready")
+    logger.info("Scheduler module ready")
     init_scheduler()

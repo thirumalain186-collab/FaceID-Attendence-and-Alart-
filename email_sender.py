@@ -14,6 +14,9 @@ from pathlib import Path
 from datetime import datetime, date
 import config
 import database
+from logger import get_logger
+
+logger = get_logger()
 
 
 def send_email_async(func):
@@ -89,11 +92,11 @@ def send_email(msg):
     email_config = get_email_config()
     
     if not email_config["enabled"]:
-        print("[EMAIL] Email disabled")
+        logger.warning("Email disabled")
         return False
     
     if not email_config["sender_email"] or email_config["sender_email"] == "your_email@gmail.com":
-        print("[EMAIL] Email not configured")
+        logger.warning("Email not configured")
         return False
     
     try:
@@ -101,9 +104,10 @@ def send_email(msg):
             server.starttls()
             server.login(email_config["sender_email"], email_config["sender_password"])
             server.send_message(msg)
+        logger.info("Email sent successfully")
         return True
     except Exception as e:
-        print(f"[EMAIL ERROR] {e}")
+        logger.exception(f"Email error: {e}")
         return False
 
 
@@ -114,7 +118,7 @@ def send_unknown_alert(image_path, pdf_path=None):
     """
     recipients = get_recipients()
     if not recipients:
-        print("[EMAIL] No recipients configured")
+        logger.warning("No email recipients configured")
         return
     
     timestamp = datetime.now()
@@ -161,9 +165,9 @@ def send_unknown_alert(image_path, pdf_path=None):
     
     if send_email(msg):
         database.mark_alert_sent(alert_db_id)
-        print(f"[EMAIL] Alert sent to {', '.join(recipients)}")
+        logger.info(f"Security alert sent to {', '.join(recipients)}")
     else:
-        print("[EMAIL] Failed to send alert")
+        logger.error("Failed to send security alert")
 
 
 @send_email_async
@@ -173,7 +177,7 @@ def send_daily_report(csv_path=None, pdf_path=None):
     """
     recipients = get_recipients()
     if not recipients:
-        print("[EMAIL] No recipients configured")
+        logger.warning("No email recipients configured")
         return
     
     today = date.today()
@@ -232,9 +236,9 @@ def send_daily_report(csv_path=None, pdf_path=None):
     msg = create_email_message(subject, recipients, html_body, attachments)
     
     if send_email(msg):
-        print(f"[EMAIL] Daily report sent to {', '.join(recipients)}")
+        logger.info(f"Daily report sent to {', '.join(recipients)}")
     else:
-        print("[EMAIL] Failed to send daily report")
+        logger.error("Failed to send daily report")
 
 
 @send_email_async
@@ -244,11 +248,11 @@ def send_monthly_report(pdf_path):
     """
     recipients = get_recipients()
     if not recipients:
-        print("[EMAIL] No recipients configured")
+        logger.warning("No email recipients configured")
         return
     
     if not pdf_path or not Path(pdf_path).exists():
-        print("[EMAIL] PDF path not provided or file not found")
+        logger.error("PDF path not provided or file not found")
         return
     
     today = date.today()
@@ -291,9 +295,9 @@ def send_monthly_report(pdf_path):
     msg = create_email_message(subject, recipients, html_body, [(pdf_path, f"monthly_report_{today.strftime('%Y%m')}.pdf")])
     
     if send_email(msg):
-        print(f"[EMAIL] Monthly report sent to {', '.join(recipients)}")
+        logger.info(f"Monthly report sent to {', '.join(recipients)}")
     else:
-        print("[EMAIL] Failed to send monthly report")
+        logger.error("Failed to send monthly report")
 
 
 @send_email_async
@@ -303,7 +307,7 @@ def send_renewal_reminder():
     """
     recipients = get_recipients()
     if not recipients:
-        print("[EMAIL] No recipients configured")
+        logger.warning("No email recipients configured")
         return
     
     today = date.today()
@@ -340,9 +344,9 @@ def send_renewal_reminder():
     msg = create_email_message(subject, recipients, html_body)
     
     if send_email(msg):
-        print(f"[EMAIL] Renewal reminder sent to {', '.join(recipients)}")
+        logger.info(f"Renewal reminder sent to {', '.join(recipients)}")
     else:
-        print("[EMAIL] Failed to send renewal reminder")
+        logger.error("Failed to send renewal reminder")
 
 
 @send_email_async
@@ -382,7 +386,7 @@ def test_email():
     email_config = get_email_config()
     
     if not email_config["sender_email"] or email_config["sender_email"] == "your_email@gmail.com":
-        print("[EMAIL] Please configure email settings first")
+        logger.warning("Email not configured")
         return False
     
     msg = MIMEMultipart()

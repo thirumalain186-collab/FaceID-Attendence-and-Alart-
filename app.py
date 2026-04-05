@@ -13,9 +13,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import config
-from attendance_engine import AttendanceSystem
-from email_alert import send_daily_report, test_email_connection
-from register_faces import register_person, list_registered_people, remove_person
+import database
+import email_sender
+from logger import get_logger
+
+logger = get_logger()
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
@@ -31,38 +33,7 @@ def get_db_connection():
 
 def get_stats():
     """Get dashboard statistics"""
-    today = date.today().isoformat()
-    conn = get_db_connection()
-    c = conn.cursor()
-    
-    c.execute("SELECT COUNT(*) FROM attendance WHERE date=?", (today,))
-    present_today = c.fetchone()[0] or 0
-    
-    c.execute("SELECT COUNT(*) FROM people")
-    total_people = c.fetchone()[0] or 0
-    
-    c.execute("SELECT COUNT(*) FROM people WHERE role='student'")
-    total_students = c.fetchone()[0] or 0
-    
-    c.execute("SELECT COUNT(*) FROM attendance WHERE date=? AND role='student'", (today,))
-    present_students = c.fetchone()[0] or 0
-    
-    c.execute("SELECT COUNT(*) FROM alerts WHERE DATE(timestamp)=?", (today,))
-    alerts_today = c.fetchone()[0] or 0
-    
-    conn.close()
-    
-    attendance_rate = round((present_students / total_students * 100), 1) if total_students > 0 else 0
-    
-    return {
-        "present_today": present_today,
-        "total_people": total_people,
-        "total_students": total_students,
-        "present_students": present_students,
-        "alerts_today": alerts_today,
-        "attendance_rate": attendance_rate,
-        "date": today
-    }
+    return database.get_stats()
 
 
 @app.route("/")
@@ -116,29 +87,26 @@ def api_people():
 @app.route("/api/camera/start", methods=["POST"])
 def start_camera():
     """Start camera in background thread"""
-    global attendance_sys, camera_thread
+    from attendance_engine import get_engine
     
-    if attendance_sys and attendance_sys.running:
+    engine = get_engine()
+    
+    if engine.running:
         return jsonify({"status": "already_running"})
     
-    attendance_sys = AttendanceSystem()
+    mode = request.json.get("mode", "attendance") if request.method == "POST" else "attendance"
+    engine.start_camera(mode=mode)
     
-    def run():
-        attendance_sys.run_camera(display=False)
-    
-    camera_thread = threading.Thread(target=run, daemon=True)
-    camera_thread.start()
-    
-    return jsonify({"status": "started"})
+    return jsonify({"status": "started", "mode": mode})
 
 
 @app.route("/api/camera/stop", methods=["POST"])
 def stop_camera():
     """Stop camera"""
-    global attendance_sys
+    from attendance_engine import get_engine
     
-    if attendance_sys:
-        attendance_sys.running = False
+    engine = get_engine()
+    engine.stop_camera()
     
     return jsonify({"status": "stopped"})
 
@@ -173,15 +141,17 @@ def export_report():
 @app.route("/api/email/test", methods=["POST"])
 def api_test_email():
     """Test email configuration"""
-    success = test_email_connection()
+    success = email_sender.test_email()
     return jsonify({"success": success})
 
 
 @app.route("/api/email/send_report", methods=["POST"])
 def api_send_report():
     """Send daily report"""
-    success = send_daily_report()
-    return jsonify({"success": success})
+    import pdf_generator
+    pdf_path = pdf_generator.generate_daily_report()
+    email_sender.send_daily_report(None, pdf_path)
+    return jsonify({"success": True})
 
 
 @app.route("/api/settings", methods=["GET"])
@@ -226,6 +196,7 @@ def api_save_settings():
 
 
 if __name__ == "__main__":
+    logger.info("Starting Smart Attendance System - Web Dashboard")
     print("\n" + "=" * 60)
     print("   SMART ATTENDANCE SYSTEM - Web Dashboard")
     print("=" * 60)
@@ -233,9 +204,7 @@ if __name__ == "__main__":
     print(f"   → API: http://localhost:{config.FLASK_PORT}/api")
     print("=" * 60 + "\n")
     
-    # Initialize database
-    from attendance_engine import AttendanceRecorder
-    AttendanceRecorder()
+    database.init_database()
     
     app.run(
         debug=True,

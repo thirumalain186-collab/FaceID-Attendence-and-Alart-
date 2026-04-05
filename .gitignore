@@ -9,10 +9,18 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv/
+
+# Environment variables (SECURITY - NEVER COMMIT THIS)
+.env
+.env.local
+.env.*.local
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Data (don't commit sensitive data)
 attendance.db
@@ -23,10 +31,14 @@ attendance_logs/
 captured_alerts/
 unknown_faces/
 reports/
+logs/
 *.yml
 *.pkl
 *.jpg
+*.jpeg
 *.png
+*.csv
+*.pdf
 
 # OS
 .DS_Store
@@ -34,3 +46,14 @@ Thumbs.db
 
 # Logs
 *.log
+logs/*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribution
+dist/
+build/
+*.egg-info/

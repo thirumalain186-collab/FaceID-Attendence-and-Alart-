@@ -19,6 +19,9 @@ APScheduler>=3.10.0
 # Web Dashboard
 flask>=3.0.0
 
+# Environment Variables
+python-dotenv>=1.0.0
+
 # Data
 pandas>=2.0.0
 

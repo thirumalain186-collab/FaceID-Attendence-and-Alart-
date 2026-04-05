@@ -7,6 +7,9 @@ import sqlite3
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import config
+from logger import get_logger
+
+logger = get_logger()
 
 
 def get_connection():
@@ -96,9 +99,16 @@ def init_database():
         )
     """)
     
+    # Create indexes for performance
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_name ON attendance(name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_movement_timestamp ON movement_log(timestamp)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_people_active ON people(active)")
+    
     conn.commit()
     conn.close()
-    print("[DB] Database initialized")
+    logger.info("Database initialized with indexes")
 
 
 # ============ BATCH FUNCTIONS ============
@@ -462,4 +472,4 @@ def get_stats():
 
 if __name__ == "__main__":
     init_database()
-    print("[OK] Database module ready")
+    logger.info("Database module ready")

@@ -16,6 +16,9 @@ import cv2
 import numpy as np
 import config
 import database
+from logger import get_logger
+
+logger = get_logger()
 
 
 def get_reports_dir():
@@ -203,7 +206,7 @@ def generate_monthly_report():
     batch = database.get_active_batch()
     
     if not batch:
-        print("[PDF] No active batch found")
+        logger.warning("No active batch found for monthly report")
         return None
     
     start_date = datetime.strptime(batch[1], "%Y-%m-%d").date()

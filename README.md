@@ -10,8 +10,12 @@ A complete college project demonstrating face recognition-based attendance manag
 - **Automatic Attendance**: Mark presence with timestamp
 - **Unknown Detection**: Detect and alert unauthorized persons
 - **Email Alerts**: Send alerts to Class Advisor and HOD
-- **Daily Reports**: Email attendance summary to stakeholders
-- **SQLite Database**: Persistent storage of people and attendance
+- **PDF Reports**: Daily, monthly, and security alert PDFs
+- **30-Day Batch System**: Auto-renewal with reminders
+- **Scheduled Tasks**: 9AM-4:30PM automated operation
+- **SQLite Database**: Persistent storage with indexes
+- **Structured Logging**: Centralized logging with rotation
+- **Environment Variables**: Secure credential management
 - **Web Dashboard**: Optional Flask-based web interface
 
 ## IMPORTANT: Constraints Met
@@ -31,18 +35,23 @@ smart_attendance/
 ├── register_faces.py      # Face registration module
 ├── train.py               # Model training module
 ├── attendance_engine.py   # Core recognition engine
-├── email_alert.py         # Email notification system
+├── database.py            # SQLite database operations
+├── scheduler.py           # APScheduler automated tasks
+├── pdf_generator.py       # PDF report generation
+├── email_sender.py        # Email notification system
+├── logger.py              # Structured logging
 │
 ├── dataset/               # Captured face images
 ├── trainer/               # Trained model files
 ├── unknown_faces/         # Unknown person snapshots
-├── attendance_logs/       # CSV backup logs
-├── known_faces/           # Reference images
+├── reports/               # Generated PDF reports
+├── logs/                  # Application logs
 │
 ├── attendance.db          # SQLite database
 ├── requirements.txt       # Dependencies
-├── README.md              # Documentation
-└── setup.bat              # Quick setup script
+├── .env.example           # Environment template
+├── .gitignore             # Git exclusions
+└── README.md              # Documentation
 ```
 
 ## Installation
@@ -53,28 +62,28 @@ smart_attendance/
 pip install -r requirements.txt
 ```
 
-### 2. Download Haar Cascade
+### 2. Environment Setup (SECURITY)
 
-Download `haarcascade_frontalface_default.xml` from:
+Copy the example environment file and configure your credentials:
+
+```bash
+# Copy the example file
+copy .env.example .env
+
+# Edit .env with your credentials
 ```
-https://github.com/opencv/opencv/blob/master/data/haarcascades/haarcascade_frontalface_default.xml
-```
 
-Or use the pre-downloaded file if available.
+Configure in `.env`:
+```env
+# Email Configuration
+SMTP_USER=your_email@gmail.com
+SMTP_PASS=your_app_password
+ADVISOR_EMAIL=advisor@college.edu
+HOD_EMAIL=hod@college.edu
 
-### 3. Configure Email (Optional)
-
-Edit `config.py` or use the menu option:
-```python
-EMAIL_CONFIG = {
-    "smtp_server": "smtp.gmail.com",
-    "smtp_port": 587,
-    "sender_email": "your_email@gmail.com",
-    "sender_password": "your_app_password",  # Gmail App Password
-    "class_advisor_email": "advisor@college.edu",
-    "hod_email": "hod@college.edu",
-    "enabled": True
-}
+# Application Settings
+CLASS_NAME=CS-A
+COLLEGE_NAME=Your College Name
 ```
 
 **Gmail App Password Setup:**
@@ -83,18 +92,27 @@ EMAIL_CONFIG = {
 3. Create a new app password for "Mail"
 4. Use the 16-character password (with spaces)
 
+### 3. Download Haar Cascade
+
+Download `haarcascade_frontalface_default.xml` from:
+```
+https://github.com/opencv/opencv/blob/master/data/haarcascades/haarcascade_frontalface_default.xml
+```
+
+Or use the pre-downloaded file if available.
+
 ## Usage
 
 ### Quick Start
 
 ```bash
-# Run the main menu
+# Run the main application (with scheduler)
 python main.py
 
 # Or run individual modules
 python register_faces.py   # Register new people
 python train.py            # Train the model
-python main.py             # Start attendance
+python app.py              # Start web dashboard
 ```
 
 ### Step-by-Step Guide
@@ -102,44 +120,58 @@ python main.py             # Start attendance
 #### Step 1: Register People
 ```bash
 python main.py
-# Choose option 2
-# Enter name, role (student/teacher/staff)
-# Capture 30 face images from different angles
+# Choose option 4
+# Enter name, roll number, role (student/teacher)
+# Capture face images from different angles
 ```
 
 #### Step 2: Train Model
 ```bash
 python main.py
-# Choose option 3
+# Choose option 5
 # Model saved to trainer/trainer.yml
 ```
 
-#### Step 3: Start Attendance
+#### Step 3: Start Attendance System
 ```bash
 python main.py
-# Choose option 1
-# System starts live camera tracking
+# Scheduler starts automatically (9AM-4:30PM)
+# Choose mode: Attendance (9AM-9:30AM) or Monitoring
 ```
+
+### Automated Schedule
+
+The scheduler runs these tasks automatically:
+
+| Time | Task |
+|------|------|
+| 8:00 AM | Check batch expiry |
+| 8:30 AM | Check batch reminders |
+| 9:00 AM | Start attendance mode |
+| 9:30 AM | Stop attendance, send daily report |
+| 4:30 PM | End of day, stop camera |
 
 ### Controls
 
 - **Q** - Quit
+- **SPACE** - Capture face (during registration)
 - **R** - Reload face database
-- **S** - Take screenshot
 
 ## Menu Options
 
 | Option | Description |
 |--------|-------------|
-| 1 | Start Attendance Tracking |
-| 2 | Register New Person |
-| 3 | Train Face Model |
-| 4 | View Today's Attendance |
-| 5 | Send Daily Report |
-| 6 | Configure Email |
-| 7 | List Registered People |
-| 8 | Test Camera |
-| 9 | Exit |
+| 1 | Start Attendance Mode |
+| 2 | Start Monitoring Mode |
+| 3 | Stop Camera |
+| 4 | Register New Person |
+| 5 | Train Model |
+| 6 | Send Daily Report |
+| 7 | Send Monthly Report |
+| 8 | View Today's Attendance |
+| 9 | View Alerts |
+| 10 | Test Email |
+| 11 | Exit |
 
 ## How It Works
 
@@ -224,7 +256,18 @@ CREATE TABLE alerts (
 
 ## Configuration Options
 
-Edit `config.py`:
+Edit `.env` for credentials (SECURE):
+
+```env
+SMTP_USER=your_email@gmail.com
+SMTP_PASS=your_app_password
+ADVISOR_EMAIL=advisor@college.edu
+HOD_EMAIL=hod@college.edu
+CLASS_NAME=CS-A
+COLLEGE_NAME=Your College Name
+```
+
+Edit `config.py` for system settings:
 
 ```python
 # Recognition settings
@@ -234,29 +277,34 @@ ATTENDANCE_CONFIG = {
     "frame_skip": 3,  # Process every Nth frame
     "camera_index": 0,  # Camera device
     "samples_per_person": 30,  # Images to capture
+    "image_size": (150, 150),  # Face image size
+    "min_face_size": (80, 80),  # Minimum detected face
     "class_name": "CS-A"  # Your class name
 }
 
-# LBPH parameters
-LBPH_CONFIG = {
-    "radius": 1,
-    "neighbors": 8,
-    "grid_x": 8,
-    "grid_y": 8,
-    "threshold": 100.0
+# Schedule settings
+SCHEDULE_CONFIG = {
+    "attendance_start": "9:00",
+    "attendance_stop": "9:30",
+    "day_end": "16:30"
 }
+
+# Logging settings
+LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
+LOG_MAX_SIZE = 5 * 1024 * 1024  # 5MB
+LOG_BACKUP_COUNT = 3
 ```
 
 ## Troubleshooting
 
 ### Camera not detected
 ```python
-# Try different camera index
+# Try different camera index in config.py
 ATTENDANCE_CONFIG["camera_index"] = 1  # or 2
 ```
 
 ### Poor recognition
-- Capture more images (50-100)
+- Capture more images (30-50)
 - Vary lighting and angles
 - Ensure good lighting
 - Lower confidence_threshold to 60
@@ -265,31 +313,52 @@ ATTENDANCE_CONFIG["camera_index"] = 1  # or 2
 - Use Gmail App Password (not regular password)
 - Enable 2FA on Google account
 - Check spam folder
+- Run `python email_sender.py` to test
 
 ### Training fails
 - Ensure at least one person registered
 - Check images are valid JPG files
 - Verify Haar cascade is present
+- Run `python train.py` directly to see error
 
-## Tips for Best Results
+### Scheduler not working
+- Check system time is correct
+- Ensure APScheduler is installed
+- Check logs/attendance.log for errors
 
-1. **Lighting**: Use consistent, good lighting
-2. **Angles**: Capture multiple face angles
-3. **Expressions**: Vary expressions during registration
-4. **Background**: Use simple, consistent background
-5. **Distance**: Keep face 30-60cm from camera
-6. **Glasses**: Include images with/without glasses
+### Database issues
+- Delete attendance.db to reset
+- Run `python database.py` to reinitialize
 
-## Dependencies Only
+## Security Best Practices
+
+1. **Never commit credentials**: Use `.env` file, not config.py
+2. **Rotate App Passwords**: Change Gmail app password periodically
+3. **Review logs**: Check logs/attendance.log for suspicious activity
+4. **Update dependencies**: Keep packages updated
+
+## Dependencies
 
 This project uses ONLY these libraries:
-- `opencv-python` - Face detection and recognition
+- `opencv-contrib-python` - LBPH face recognition
 - `numpy` - Numerical operations
 - `Pillow` - Image processing
-- `pandas` - Data analysis (optional)
-- `flask` - Web dashboard (optional)
+- `reportlab` - PDF generation
+- `APScheduler` - Scheduled tasks
+- `Flask` - Web dashboard
+- `python-dotenv` - Environment variables
 
 **NO dlib or face_recognition library!**
+
+## Database Schema
+
+The system uses SQLite with the following tables:
+- `batches` - 30-day registration batches
+- `people` - Registered students/teachers
+- `attendance` - Daily attendance records
+- `movement_log` - Entry/exit tracking
+- `alerts` - Security alert history
+- `settings` - Application settings
 
 ## License
 

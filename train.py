@@ -9,30 +9,30 @@ from PIL import Image
 from pathlib import Path
 import config
 import database
+from logger import get_logger
+
+logger = get_logger()
 
 
 def train_model():
     """Train the face recognition model"""
-    print("\n" + "="*50)
-    print("   MODEL TRAINING")
-    print("="*50)
+    logger.info("Starting model training")
     
     faces = []
     labels = []
     label_names = {}
     
     if not config.DATASET_DIR.exists():
-        print("[ERROR] Dataset directory not found")
+        logger.error("Dataset directory not found")
         return False
     
     user_folders = [f for f in config.DATASET_DIR.iterdir() if f.is_dir()]
     
     if not user_folders:
-        print("[ERROR] No registered users found")
+        logger.error("No registered users found")
         return False
     
-    print(f"[INFO] Found {len(user_folders)} registered users")
-    print("-"*50)
+    logger.info(f"Found {len(user_folders)} registered users")
     
     label_id = 0
     
@@ -41,7 +41,7 @@ def train_model():
         parts = folder_name.rsplit('_', 1)
         
         if len(parts) != 2:
-            print(f"[WARNING] Invalid folder: {folder_name}")
+            logger.warning(f"Invalid folder format: {folder_name}")
             continue
         
         person_name = parts[0].replace("_", " ").title()
@@ -73,10 +73,10 @@ def train_model():
         image_files = list(user_folder.glob("*.jpg")) + list(user_folder.glob("*.png"))
         
         if not image_files:
-            print(f"[WARNING] No images: {display}")
+            logger.warning(f"No images found for: {display}")
             continue
         
-        print(f"[INFO] Loading {len(image_files)} images for: {display}")
+        logger.info(f"Loading {len(image_files)} images for: {display}")
         
         valid_count = 0
         for image_file in image_files:
@@ -89,18 +89,17 @@ def train_model():
                 labels.append(label_id)
                 valid_count += 1
             except Exception as e:
-                print(f"[WARNING] Error: {e}")
+                logger.warning(f"Error loading image: {e}")
         
         if valid_count > 0:
             label_id += 1
     
     if not faces:
-        print("[ERROR] No valid face images")
+        logger.error("No valid face images found")
         return False
     
-    print("-"*50)
-    print(f"[INFO] Total: {len(faces)} images, {len(label_names)} users")
-    print("\n[INFO] Training...")
+    logger.info(f"Training with {len(faces)} images, {len(label_names)} users")
+    logger.info("Training model...")
     
     try:
         recognizer = cv2.face.LBPHFaceRecognizer_create(
@@ -115,20 +114,16 @@ def train_model():
         config.TRAINER_DIR.mkdir(exist_ok=True)
         recognizer.save(str(config.TRAINER_FILE))
         
-        print("="*50)
-        print("   TRAINING COMPLETED!")
-        print("="*50)
-        print(f"[INFO] Model: {config.TRAINER_FILE}")
-        print(f"[INFO] {len(label_names)} users:")
+        logger.info("Training completed successfully")
+        logger.info(f"Model saved: {config.TRAINER_FILE}")
+        logger.info(f"Trained {len(label_names)} users:")
         for lid, name in sorted(label_names.items()):
-            print(f"  - {name}")
-        print("\n[NEXT] Run 'python main.py'")
-        print("="*50)
+            logger.info(f"  - {name}")
         
         return True
         
     except Exception as e:
-        print(f"[ERROR] {e}")
+        logger.exception(f"Training failed: {e}")
         return False
 
 

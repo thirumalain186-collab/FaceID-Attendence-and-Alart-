@@ -10,6 +10,9 @@ import attendance_engine
 import scheduler
 import email_sender
 import pdf_generator
+from logger import get_logger
+
+logger = get_logger()
 
 
 def show_menu():
@@ -82,22 +85,20 @@ def view_alerts():
 
 def main():
     """Main application"""
-    print("\n" + "="*60)
-    print("   SMART ATTENDANCE SYSTEM v2")
-    print("="*60)
+    logger.info("Starting Smart Attendance System v2")
     
     database.init_database()
     
     batch = database.get_active_batch()
     if not batch:
         batch_id = database.create_batch()
-        print(f"[OK] New batch created (ID: {batch_id})")
+        logger.info(f"New batch created (ID: {batch_id})")
     
     scheduler.init_scheduler()
-    print("[OK] Scheduler started")
+    logger.info("Scheduler started")
     
     engine = attendance_engine.get_engine()
-    print(f"[OK] Engine ready ({len(engine.label_names)} registered)")
+    logger.info(f"Engine ready ({len(engine.label_names)} registered)")
     
     while True:
         try:
@@ -133,12 +134,13 @@ def main():
             elif choice == '11':
                 scheduler.stop_scheduler()
                 engine.stop_camera()
-                print("Goodbye!")
+                logger.info("Shutting down")
                 break
             
             input("\nPress Enter...")
             
         except KeyboardInterrupt:
+            logger.info("Interrupted by user")
             scheduler.stop_scheduler()
             engine.stop_camera()
             break

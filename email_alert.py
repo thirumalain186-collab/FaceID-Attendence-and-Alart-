@@ -17,6 +17,9 @@ import config
 import cv2
 import numpy as np
 from fpdf import FPDF
+from logger import get_logger
+
+logger = get_logger()
 
 
 def get_all_email_config():
@@ -152,7 +155,7 @@ def create_intruder_report_pdf(image_path, timestamp, class_name, location="Main
             if os.path.exists(enhanced_path):
                 os.remove(enhanced_path)
                 
-            print(f"[INFO] High quality image added to PDF")
+            logger.info("High quality image added to PDF")
     else:
         pdf.set_font('Helvetica', 'I', 10)
         pdf.set_text_color(128)
@@ -214,11 +217,11 @@ def send_unknown_alert(image_path, person_label="Unknown"):
     email_config = get_all_email_config()
     
     if not email_config["enabled"]:
-        print("[INFO] Email alerts disabled")
+        logger.info("Email alerts disabled")
         return False
     
     if not email_config["sender_email"] or email_config["sender_email"] == "your_email@gmail.com":
-        print("[WARNING] Email not configured. Update config.py or database settings.")
+        logger.warning("Email not configured")
         return False
     
     recipients = []
@@ -228,7 +231,7 @@ def send_unknown_alert(image_path, person_label="Unknown"):
         recipients.append(email_config["hod_email"])
     
     if not recipients:
-        print("[WARNING] No recipients configured")
+        logger.warning("No recipients configured")
         return False
     
     timestamp = datetime.now()
@@ -303,21 +306,20 @@ def send_unknown_alert(image_path, person_label="Unknown"):
             img_part.add_header('Content-Disposition', 'attachment', 
                               filename=f"intruder_photo_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg")
             msg.attach(img_part)
-        print(f"[INFO] Original image also attached: {image_path}")
+        logger.info(f"Original image attached: {image_path}")
     
-    # Send email
     try:
         with smtplib.SMTP(email_config["smtp_server"], email_config["smtp_port"]) as server:
             server.starttls()
             server.login(email_config["sender_email"], email_config["sender_password"])
             server.sendmail(email_config["sender_email"], recipients, msg.as_string())
         
-        print(f"[EMAIL] Intruder Alert PDF sent to: {', '.join(recipients)}")
-        print(f"[INFO] PDF Report: {pdf_path}")
+        logger.info(f"Intruder alert sent to: {', '.join(recipients)}")
+        logger.info(f"PDF Report: {pdf_path}")
         return True
         
     except Exception as e:
-        print(f"[ERROR] Failed to send email: {e}")
+        logger.exception(f"Failed to send email: {e}")
         return False
 
 
@@ -331,11 +333,11 @@ def send_daily_report():
     email_config = get_all_email_config()
     
     if not email_config["enabled"]:
-        print("[INFO] Email alerts disabled")
+        logger.info("Email alerts disabled")
         return False
     
     if not email_config["sender_email"] or email_config["sender_email"] == "your_email@gmail.com":
-        print("[WARNING] Email not configured")
+        logger.warning("Email not configured")
         return False
     
     recipients = []
@@ -345,7 +347,7 @@ def send_daily_report():
         recipients.append(email_config["hod_email"])
     
     if not recipients:
-        print("[WARNING] No recipients configured")
+        logger.warning("No recipients configured")
         return False
     
     today = date.today().isoformat()
@@ -361,7 +363,7 @@ def send_daily_report():
         records = c.fetchall()
         conn.close()
     except Exception as e:
-        print(f"[ERROR] Database error: {e}")
+        logger.exception(f"Database error: {e}")
         records = []
     
     # Statistics
@@ -527,11 +529,11 @@ def send_daily_report():
             server.login(email_config["sender_email"], email_config["sender_password"])
             server.sendmail(email_config["sender_email"], recipients, msg.as_string())
         
-        print(f"[EMAIL] Daily report sent to: {', '.join(recipients)}")
+        logger.info(f"Daily report sent to: {', '.join(recipients)}")
         return True
         
     except Exception as e:
-        print(f"[ERROR] Failed to send report: {e}")
+        logger.exception(f"Failed to send report: {e}")
         return False
 
 
@@ -540,7 +542,7 @@ def test_email_connection():
     email_config = get_all_email_config()
     
     if not email_config["sender_email"] or email_config["sender_email"] == "your_email@gmail.com":
-        print("[WARNING] Please configure email settings first")
+        logger.warning("Email not configured")
         return False
     
     test_msg = MIMEMultipart()
@@ -555,11 +557,11 @@ def test_email_connection():
             server.login(email_config["sender_email"], email_config["sender_password"])
             server.send_message(test_msg)
         
-        print("[SUCCESS] Test email sent successfully!")
+        logger.info("Test email sent successfully")
         return True
         
     except Exception as e:
-        print(f"[ERROR] Test failed: {e}")
+        logger.exception(f"Test failed: {e}")
         return False
 
 

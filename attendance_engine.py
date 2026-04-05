@@ -13,6 +13,9 @@ import config
 import database
 import email_sender
 import pdf_generator
+from logger import get_logger
+
+logger = get_logger()
 
 
 class AttendanceEngine:
@@ -41,16 +44,16 @@ class AttendanceEngine:
         """Load cascade and model"""
         if config.HAAR_CASCADE_PATH.exists():
             self.cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
-            print("[ENGINE] Haar cascade loaded")
+            logger.info("Haar cascade loaded")
         else:
-            print("[ENGINE] ERROR: Haar cascade not found")
+            logger.error("Haar cascade not found")
         
         if config.TRAINER_FILE.exists():
             self.recognizer = cv2.face.LBPHFaceRecognizer_create()
             self.recognizer.read(str(config.TRAINER_FILE))
-            print("[ENGINE] LBPH model loaded")
+            logger.info("LBPH model loaded")
         else:
-            print("[ENGINE] WARNING: Model not trained")
+            logger.warning("Model not trained")
         
         self.reload_faces()
     
@@ -76,7 +79,7 @@ class AttendanceEngine:
                         label_id += 1
                         break
             
-            print(f"[ENGINE] Loaded {len(self.label_names)} registered people")
+            logger.info(f"Loaded {len(self.label_names)} registered people")
     
     def remove_person_safe(self, name):
         """Remove person without stopping camera"""
@@ -90,12 +93,12 @@ class AttendanceEngine:
                 shutil.rmtree(folder, ignore_errors=True)
                 break
         
-        print(f"[ENGINE] Removed {name}")
+        logger.info(f"Removed {name} from system")
     
     def start_camera(self, mode="attendance"):
         """Start camera in specified mode"""
         if self.running:
-            print("[ENGINE] Camera already running")
+            logger.warning("Camera already running")
             return
         
         self.running = True
@@ -103,11 +106,11 @@ class AttendanceEngine:
         self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
         
         if not self.camera.isOpened():
-            print("[ENGINE] ERROR: Cannot open camera")
+            logger.error("Cannot open camera")
             self.running = False
             return
         
-        print(f"[ENGINE] Camera started in {mode} mode")
+        logger.info(f"Camera started in {mode} mode")
         
         thread = threading.Thread(target=self._camera_loop, daemon=True)
         thread.start()
@@ -121,7 +124,7 @@ class AttendanceEngine:
             self.camera.release()
             self.camera = None
         
-        print("[ENGINE] Camera stopped")
+        logger.info("Camera stopped")
     
     def _camera_loop(self):
         """Main camera processing loop"""
@@ -194,7 +197,7 @@ class AttendanceEngine:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
                 
             except Exception as e:
-                print(f"[ENGINE] Error: {e}")
+                logger.exception(f"Error processing frame: {e}")
     
     def _mark_attendance(self, name, role, roll):
         """Mark attendance"""
@@ -203,7 +206,7 @@ class AttendanceEngine:
         
         if database.mark_attendance(name, roll):
             self.marked_today.add(name)
-            print(f"[ATTENDANCE] {name} marked present")
+            logger.info(f"Attendance marked: {name}")
     
     def _log_movement(self, name, role):
         """Log entry/exit movement"""
@@ -212,7 +215,7 @@ class AttendanceEngine:
         if name not in self.last_seen:
             self.last_seen[name] = {'time': current_time, 'event': 'entry'}
             database.log_movement(name, role, 'entry')
-            print(f"[MOVEMENT] {name} entered")
+            logger.info(f"{name} entered")
         else:
             last = self.last_seen[name]
             time_diff = current_time - last['time']
@@ -220,13 +223,13 @@ class AttendanceEngine:
             if time_diff > 30 and last['event'] == 'exit':
                 database.log_movement(name, role, 'entry')
                 self.last_seen[name] = {'time': current_time, 'event': 'entry'}
-                print(f"[MOVEMENT] {name} entered")
+                logger.info(f"{name} entered")
             elif time_diff > 5 and last['event'] == 'entry':
                 self.last_seen[name] = {'time': current_time, 'event': 'entry'}
     
     def _handle_unknown(self, frame, x, y, w, h):
         """Handle unknown person"""
-        print("[ALERT] Unknown person detected!")
+        logger.warning("Unknown person detected!")
         
         timestamp = datetime.now()
         expand = 50

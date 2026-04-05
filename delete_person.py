@@ -6,6 +6,10 @@ import os
 import shutil
 import sqlite3
 import config
+from logger import get_logger
+
+logger = get_logger()
+
 
 def delete_person():
     """Delete a registered person"""
@@ -21,12 +25,12 @@ def delete_person():
         c.execute("SELECT id, name, role, roll_number FROM people ORDER BY name")
         people = c.fetchall()
         conn.close()
-    except:
-        print("[ERROR] Cannot read database")
+    except Exception as e:
+        logger.error(f"Cannot read database: {e}")
         return
     
     if not people:
-        print("[INFO] No registered people found")
+        logger.info("No registered people found")
         return
     
     print("\nRegistered People:")
@@ -39,23 +43,22 @@ def delete_person():
     try:
         choice = int(input("\nEnter number to delete (0 to cancel): "))
         if choice == 0:
-            print("Cancelled")
+            logger.info("Cancelled by user")
             return
         if choice < 1 or choice > len(people):
-            print("[ERROR] Invalid choice")
+            logger.error("Invalid choice")
             return
         
         person = people[choice - 1]
         person_id, name, role, roll = person
         
     except ValueError:
-        print("[ERROR] Please enter a number")
+        logger.error("Please enter a number")
         return
     
-    # Confirm
     confirm = input(f"\nDelete '{name}' ({roll})? (yes/no): ").strip().lower()
     if confirm != 'yes':
-        print("Cancelled")
+        logger.info("Cancelled by user")
         return
     
     # Delete from database
@@ -66,31 +69,27 @@ def delete_person():
         c.execute("DELETE FROM attendance WHERE name=?", (name,))
         conn.commit()
         conn.close()
-        print("[OK] Deleted from database")
+        logger.info("Deleted from database")
     except Exception as e:
-        print(f"[ERROR] Database error: {e}")
+        logger.exception(f"Database error: {e}")
         return
     
-    # Delete face images
     safe_name = name.replace(" ", "_")
     for folder in config.DATASET_DIR.iterdir():
         if folder.is_dir() and folder.name.startswith(safe_name):
             shutil.rmtree(folder, ignore_errors=True)
-            print(f"[OK] Deleted images: {folder.name}")
+            logger.info(f"Deleted images: {folder.name}")
     
-    # Delete from known_faces
     known_dir = config.KNOWN_FACES_DIR / name
     if known_dir.exists():
         shutil.rmtree(known_dir, ignore_errors=True)
-        print(f"[OK] Deleted reference images")
+        logger.info("Deleted reference images")
     
-    # Delete trained model (need to retrain)
     if config.TRAINER_FILE.exists():
         os.remove(config.TRAINER_FILE)
-        print("[INFO] Model deleted - need to retrain")
+        logger.warning("Model deleted - need to retrain")
     
-    print(f"\n[SUCCESS] Deleted: {name}")
-    print("\n[NEXT] Run: python train.py  (to retrain model)")
+    logger.info(f"Deleted: {name}")
 
 if __name__ == "__main__":
     delete_person()

@@ -8,6 +8,9 @@ import os
 import numpy as np
 from datetime import datetime
 import config
+from logger import get_logger
+
+logger = get_logger()
 
 
 def create_directories():
@@ -27,10 +30,10 @@ def validate_name(name):
         bool: True if valid, False otherwise
     """
     if not name or len(name.strip()) < 2:
-        print("[ERROR] Name must be at least 2 characters long.")
+        logger.error("Name must be at least 2 characters")
         return False
     if any(char.isdigit() for char in name):
-        print("[ERROR] Name should not contain numbers.")
+        logger.error("Name should not contain numbers")
         return False
     return True
 
@@ -48,7 +51,7 @@ def validate_role(role):
     role = role.lower().strip()
     valid_roles = ["student", "teacher"]
     if role not in valid_roles:
-        print(f"[ERROR] Role must be either 'student' or 'teacher'.")
+        logger.error(f"Invalid role: {role}")
         return False
     return True
 
@@ -76,7 +79,7 @@ def get_user_info():
         return name, role
         
     except KeyboardInterrupt:
-        print("\n[INFO] Registration cancelled by user.")
+        logger.info("Registration cancelled by user")
         return None, None
 
 
@@ -88,13 +91,12 @@ def load_haar_cascade():
         cv2.CascadeClassifier: Loaded cascade classifier
     """
     if not os.path.exists(config.HAAR_CASCADE_PATH):
-        print(f"[ERROR] Haar Cascade file not found: {config.HAAR_CASCADE_PATH}")
-        print("[HINT] Download haarcascade_frontalface_default.xml and place it in the project directory.")
+        logger.error(f"Haar Cascade not found: {config.HAAR_CASCADE_PATH}")
         return None
     
     cascade = cv2.CascadeClassifier(config.HAAR_CASCADE_PATH)
     if cascade.empty():
-        print("[ERROR] Failed to load Haar Cascade classifier.")
+        logger.error("Failed to load Haar Cascade")
         return None
     
     return cascade
@@ -114,7 +116,7 @@ def capture_face_images(name, role):
     cap = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
     
     if not cap.isOpened():
-        print("[ERROR] Cannot access webcam. Please check if camera is connected.")
+        logger.error("Cannot access webcam")
         return False
     
     cascade = load_haar_cascade()
@@ -194,13 +196,13 @@ def capture_face_images(name, role):
     cv2.destroyAllWindows()
     
     captured = count - start_count
-    print(f"\n[INFO] Captured {captured} images for {name} ({role})")
+    logger.info(f"Captured {captured} images for {name} ({role})")
     
     if captured >= min_detections:
-        print("[SUCCESS] Sufficient images captured for training!")
+        logger.info("Sufficient images captured for training")
         return True
     else:
-        print(f"[WARNING] Only captured {captured} images. Need at least {min_detections} for training.")
+        logger.warning(f"Only captured {captured} images, need at least {min_detections}")
         return False
 
 
@@ -249,6 +251,6 @@ if __name__ == "__main__":
     try:
         register_user()
     except KeyboardInterrupt:
-        print("\n[INFO] Program interrupted by user.")
+        logger.info("Program interrupted by user")
     except Exception as e:
-        print(f"\n[ERROR] Unexpected error: {e}")
+        logger.exception(f"Unexpected error: {e}")

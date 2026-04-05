@@ -9,6 +9,9 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime
 import config
+from logger import get_logger
+
+logger = get_logger()
 
 def register_single_person():
     """Register a single person with name and roll number"""
@@ -17,35 +20,31 @@ def register_single_person():
     print("   SINGLE PERSON REGISTRATION")
     print("=" * 50)
     
-    # Get user info
     name = input("\nEnter Name: ").strip()
     if not name:
-        print("[ERROR] Name cannot be empty")
+        logger.error("Name cannot be empty")
         return False
     
     roll = input("Enter Roll Number: ").strip()
     if not roll:
-        print("[ERROR] Roll number cannot be empty")
+        logger.error("Roll number cannot be empty")
         return False
     
     role = input("Enter Role (student/teacher): ").strip().lower()
     if role not in ['student', 'teacher']:
-        print("[ERROR] Role must be 'student' or 'teacher'")
+        logger.error("Role must be 'student' or 'teacher'")
         return False
     
-    print(f"\n[INFO] Registering: {name} ({roll})")
-    print("[INFO] Press SPACE to capture face, Q to quit")
+    logger.info(f"Registering: {name} ({roll})")
     
-    # Initialize webcam
     cap = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
     if not cap.isOpened():
-        print("[ERROR] Cannot access camera")
+        logger.error("Cannot access camera")
         return False
     
-    # Load cascade
     cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
     if cascade.empty():
-        print("[ERROR] Cannot load face detector")
+        logger.error("Cannot load face detector")
         cap.release()
         return False
     
@@ -75,7 +74,7 @@ def register_single_person():
         c.execute("SELECT id FROM people WHERE roll_number=?", (roll,))
         existing = c.fetchone()
         if existing:
-            print("[WARNING] Roll number already registered!")
+            logger.warning("Roll number already registered")
             conn.close()
             cap.release()
             return False
@@ -86,9 +85,9 @@ def register_single_person():
         """, (name, role, roll, config.ATTENDANCE_CONFIG["class_name"], datetime.now().isoformat()))
         conn.commit()
         conn.close()
-        print("[INFO] Saved to database")
+        logger.info("Saved to database")
     except Exception as e:
-        print(f"[ERROR] Database error: {e}")
+        logger.exception(f"Database error: {e}")
         cap.release()
         return False
     
@@ -131,12 +130,10 @@ def register_single_person():
     cv2.destroyAllWindows()
     
     if count > 0:
-        print(f"\n[SUCCESS] Registered: {name} ({roll})")
-        print(f"[INFO] Captured {count} images")
-        print(f"[NEXT] Run: python train.py")
+        logger.info(f"Registered: {name} ({roll}) with {count} images")
         return True
     else:
-        print("[WARNING] No images captured")
+        logger.warning("No images captured")
         return False
 
 if __name__ == "__main__":

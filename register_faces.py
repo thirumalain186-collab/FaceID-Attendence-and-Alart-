@@ -8,45 +8,46 @@ from pathlib import Path
 import config
 import database
 import attendance_engine
+from logger import get_logger
+
+logger = get_logger()
 
 
 def register_person_webcam():
     """Register person using webcam"""
-    print("\n" + "="*50)
-    print("   FACE REGISTRATION - Webcam")
-    print("="*50)
+    logger.info("Starting face registration")
     
     name = input("\nEnter Name: ").strip()
     if not name:
-        print("[ERROR] Name required")
+        logger.error("Name required")
         return False
     
     roll = input("Enter Roll Number: ").strip()
     if not roll:
-        print("[ERROR] Roll number required")
+        logger.error("Roll number required")
         return False
     
     role = input("Role (student/teacher): ").strip().lower()
     if role not in ['student', 'teacher']:
-        print("[ERROR] Role must be 'student' or 'teacher'")
+        logger.error("Role must be 'student' or 'teacher'")
         return False
     
     people = database.get_active_people()
     for p in people:
         if p[3] == roll:
-            print(f"[ERROR] Roll number {roll} already registered!")
+            logger.error(f"Roll number {roll} already registered")
             return False
     
-    print(f"\n[INFO] Registering: {name} ({roll})")
+    logger.info(f"Registering: {name} ({roll})")
     
     camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
     if not camera.isOpened():
-        print("[ERROR] Cannot access camera")
+        logger.error("Cannot access camera")
         return False
     
     cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
     if cascade.empty():
-        print("[ERROR] Cannot load face detector")
+        logger.error("Cannot load face detector")
         camera.release()
         return False
     
@@ -56,13 +57,13 @@ def register_person_webcam():
     person_dir.mkdir(exist_ok=True)
     
     person_id = database.add_person(name, role, roll)
-    print(f"[INFO] Added to database (ID: {person_id})")
+    logger.info(f"Added to database (ID: {person_id})")
     
     count = 0
     target = config.ATTENDANCE_CONFIG["samples_per_person"]
     
-    print(f"\n[INFO] Capturing {target} face images...")
-    print("[INFO] Press SPACE to capture, Q to quit\n")
+    logger.info(f"Capturing {target} face images")
+    print("\nPress SPACE to capture, Q to quit\n")
     
     while count < target:
         ret, frame = camera.read()
@@ -103,18 +104,19 @@ def register_person_webcam():
             cv2.imwrite(str(person_dir / filename), face)
             
             count += 1
-            print(f"  Captured {count}/{target}")
+            logger.debug(f"Captured {count}/{target}")
     
     camera.release()
     cv2.destroyAllWindows()
     
     if count > 0:
+        logger.info(f"Registered: {name} ({roll}) with {count} images")
         print(f"\n[SUCCESS] Registered: {name} ({roll})")
         print(f"[INFO] Captured {count} images")
         print(f"[INFO] Run 'python train.py' to train the model")
         return True
     else:
-        print("[WARNING] No images captured")
+        logger.warning("No images captured")
         return False
 
 
@@ -138,6 +140,7 @@ def list_people():
     
     print("-"*60)
     print(f"Total: {len(people)}")
+    logger.info(f"Listed {len(people)} registered people")
 
 
 def remove_person(name):
@@ -154,10 +157,11 @@ def remove_person(name):
                 shutil.rmtree(folder, ignore_errors=True)
                 break
     
-    print(f"[SUCCESS] Removed: {name}")
+    logger.info(f"Removed: {name}")
 
 
 if __name__ == "__main__":
+    logger.info("Starting registration tool")
     print("\n" + "="*50)
     print("   SMART ATTENDANCE - REGISTRATION TOOL")
     print("="*50)
