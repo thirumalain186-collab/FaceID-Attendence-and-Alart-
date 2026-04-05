@@ -62,11 +62,11 @@ def api_today_attendance():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute("""
-        SELECT name, role, roll_number, time_in, status
+        SELECT name, roll_number, date, time_in, status
         FROM attendance WHERE date=? ORDER BY time_in
     """, (today,))
     records = [
-        {"name": r[0], "role": r[1], "roll": r[2], "time": r[3], "status": r[4]}
+        {"name": r[0], "roll": r[1], "date": r[2], "time": r[3], "status": r[4]}
         for r in c.fetchall()
     ]
     conn.close()
