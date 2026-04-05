@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: face-attendance
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: FLASK_ENV
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
