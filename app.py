@@ -8,9 +8,13 @@ from flask_cors import CORS
 import io
 import csv
 import time
+import shutil
 from datetime import date, datetime, timedelta
 from functools import wraps
 from threading import Lock
+from PIL import Image
+import numpy as np
+import cv2
 
 import config
 import database
@@ -291,6 +295,90 @@ def api_save_settings():
         database.set_setting(key, value)
     
     return jsonify({"success": True, "message": "Settings saved"})
+
+
+@app.route("/register")
+def register_page():
+    """Registration page."""
+    return render_template("register.html")
+
+
+@app.route("/api/v1/register/upload", methods=["POST"])
+def api_register_upload():
+    """Handle registration with image upload."""
+    try:
+        name = _sanitize_string(request.form.get("name", ""), 50)
+        roll = _sanitize_string(request.form.get("roll", ""), 30)
+        role = request.form.get("role", "student")
+        email = _sanitize_string(request.form.get("email", ""), 100)
+        
+        if not name or not roll:
+            return jsonify({"success": False, "error": "Name and roll number required"})
+        
+        if role not in ("student", "teacher"):
+            role = "student"
+        
+        people = database.get_active_people()
+        for p in people:
+            if p.get('name', '').lower() == name.lower():
+                return jsonify({"success": False, "error": f"Name '{name}' already registered"})
+            if (p.get('roll_number') or '').lower() == roll.lower():
+                return jsonify({"success": False, "error": f"Roll number '{roll}' already registered"})
+        
+        person_id = database.add_person(name, role, roll, email if email else None)
+        if person_id is None:
+            return jsonify({"success": False, "error": "Failed to add person to database"})
+        
+        safe_name = name.replace(" ", "_").lower()
+        person_dir = config.DATASET_DIR / f"{safe_name}_{roll}_{role}"
+        person_dir.mkdir(exist_ok=True)
+        
+        images = request.files.getlist("images")
+        saved_count = 0
+        
+        for i, img_file in enumerate(images[:50]):
+            if img_file and img_file.filename:
+                try:
+                    import numpy as np
+                    import cv2
+                    from PIL import Image
+                    import io
+                    
+                    img = Image.open(img_file.stream).convert('RGB')
+                    img = img.resize((200, 200))
+                    
+                    filename = f"{safe_name}_{roll}_{i}.jpg"
+                    filepath = person_dir / filename
+                    img.save(str(filepath), "JPEG", quality=95)
+                    saved_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to save image {i}: {e}")
+        
+        if saved_count < 5:
+            database.remove_person(name)
+            shutil.rmtree(person_dir, ignore_errors=True)
+            return jsonify({"success": False, "error": f"Need at least 5 images, got {saved_count}"})
+        
+        import train
+        training_success = train.train_model()
+        
+        try:
+            engine = attendance_engine.get_engine()
+            engine.reload_faces()
+        except:
+            pass
+        
+        return jsonify({
+            "success": True,
+            "name": name,
+            "person_id": person_id,
+            "image_count": saved_count,
+            "training": training_success
+        })
+        
+    except Exception as e:
+        logger.exception(f"Registration error: {e}")
+        return jsonify({"success": False, "error": str(e)})
 
 
 if __name__ == "__main__":
