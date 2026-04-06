@@ -18,13 +18,24 @@ import cv2
 import numpy as np
 from fpdf import FPDF
 from logger import get_logger
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env")
 
 logger = get_logger()
 
 
 def get_all_email_config():
     """Get email configuration from config"""
-    email_config = config.EMAIL_CONFIG.copy()
+    email_config = {
+        "enabled": os.getenv("EMAIL_ENABLED", "false").lower() == "true",
+        "sender_email": os.getenv("SENDER_EMAIL", ""),
+        "sender_password": os.getenv("SENDER_PASSWORD", ""),
+        "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "class_advisor_email": os.getenv("CLASS_ADVISOR_EMAIL", ""),
+        "hod_email": os.getenv("HOD_EMAIL", ""),
+    }
     return email_config
 
 
