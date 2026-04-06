@@ -156,7 +156,8 @@ class AttendanceSystem:
         image_path = self.save_unknown_image(face_roi, person_id)
         
         if image_path:
-            logger.warning(f"Unknown person detected! Confidence: {confidence:.2f}")
+            conf_display = f"{confidence:.2f}" if 0 < confidence < 1000 else "N/A"
+            logger.warning(f"Unknown person detected! Confidence: {conf_display}")
             logger.info(f"Unknown face saved to: {image_path}")
             
             logger.info("Sending email alert...")
