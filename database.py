@@ -181,6 +181,23 @@ def _get_person_id_by_name(name):
     return row['id'] if row else None
 
 
+def get_person_by_id(person_id):
+    """Get person by ID. Returns dict or None."""
+    if not person_id:
+        return None
+    
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM people WHERE id=?", (person_id,))
+    row = c.fetchone()
+    return dict(row) if row else None
+
+
+def get_person_id_by_name(name):
+    """Get person ID by name (public version). Returns None if not found."""
+    return _get_person_id_by_name(name)
+
+
 def create_batch():
     """Create a new batch. Returns batch_id or None on failure."""
     try:
@@ -303,7 +320,7 @@ def get_active_people():
     conn = get_connection()
     c = conn.cursor()
     c.execute("""
-        SELECT id, name, role, roll_number, email, class_name, registered_at 
+        SELECT id, name, role, roll_number, email, class_name, batch_id, registered_at 
         FROM people WHERE active=1 ORDER BY name
     """)
     rows = c.fetchall()
@@ -340,10 +357,11 @@ def remove_person(name):
         return False
 
 
-def mark_attendance(name, roll_number="", batch_id=None, confidence=None):
-    """Mark attendance for a person. Returns True if marked, False if already marked."""
+def mark_attendance(name, roll_number="", batch_id=None, confidence=None, person_id=None):
+    """Mark attendance for a person. Returns True if marked, False if already marked or person not found."""
     safe_name = _safe_name(name)
     if not safe_name:
+        logger.warning("mark_attendance: invalid name")
         return False
     
     conn = get_connection()
@@ -356,7 +374,12 @@ def mark_attendance(name, roll_number="", batch_id=None, confidence=None):
         batch = get_active_batch()
         batch_id = batch.get('id') if batch else None
     
-    person_id = _get_person_id_by_name(safe_name)
+    if person_id is None:
+        person_id = _get_person_id_by_name(safe_name)
+    
+    if person_id is None:
+        logger.warning(f"mark_attendance: person not found: {safe_name}")
+        return False
     
     try:
         c.execute("""
@@ -365,9 +388,11 @@ def mark_attendance(name, roll_number="", batch_id=None, confidence=None):
         """, (person_id, safe_name, _safe_name(roll_number) or "", today, 
               current_time, STATUS_PRESENT, batch_id, confidence))
         conn.commit()
+        logger.info(f"Attendance marked: {safe_name} (ID: {person_id})")
         return True
     except sqlite3.IntegrityError:
         conn.rollback()
+        logger.info(f"Attendance already marked: {safe_name}")
         return False
     except Exception as e:
         logger.error(f"Failed to mark attendance: {e}")
@@ -443,7 +468,7 @@ def get_attendance_summary(start_date, end_date):
     return [dict(row) for row in rows]
 
 
-def log_movement(name, role, event_type, batch_id=None):
+def log_movement(name, role, event_type, batch_id=None, person_id=None):
     """Log entry/exit movement. Returns True on success."""
     valid_events = {EVENT_ENTRY, EVENT_EXIT}
     if event_type not in valid_events:
@@ -462,7 +487,8 @@ def log_movement(name, role, event_type, batch_id=None):
             batch = get_active_batch()
             batch_id = batch.get('id') if batch else None
         
-        person_id = _get_person_id_by_name(safe_name)
+        if person_id is None:
+            person_id = _get_person_id_by_name(safe_name)
         
         c.execute("""
             INSERT INTO movement_log (person_id, name, role, timestamp, event_type, batch_id)
