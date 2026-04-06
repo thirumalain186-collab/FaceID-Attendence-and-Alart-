@@ -4,6 +4,7 @@ Register new people with webcam
 """
 
 import cv2
+import shutil
 from pathlib import Path
 import config
 import database
@@ -13,115 +14,139 @@ from logger import get_logger
 logger = get_logger()
 
 
+def _generate_folder_name(name, roll, role):
+    """Generate consistent folder name. Format: name_roll_role."""
+    safe_name = "".join(c if c.isalnum() else "_" for c in name).lower()
+    safe_name = safe_name.strip("_")
+    safe_roll = "".join(c if c.isalnum() else "_" for c in roll).lower()
+    safe_roll = safe_roll.strip("_")
+    return f"{safe_name}_{safe_roll}_{role.lower()}"
+
+
 def register_person_webcam():
-    """Register person using webcam"""
+    """Register person using webcam with transaction safety."""
     logger.info("Starting face registration")
     
     name = input("\nEnter Name: ").strip()
-    if not name:
-        logger.error("Name required")
+    if not name or len(name) > 50:
+        logger.error("Valid name required (max 50 chars)")
         return False
     
     roll = input("Enter Roll Number: ").strip()
-    if not roll:
-        logger.error("Roll number required")
+    if not roll or len(roll) > 30:
+        logger.error("Valid roll number required (max 30 chars)")
         return False
     
-    role = input("Role (student/teacher): ").strip().lower()
-    if role not in ['student', 'teacher']:
-        logger.error("Role must be 'student' or 'teacher'")
-        return False
+    role_input = input("Role (student/teacher) [default: student]: ").strip().lower()
+    role = role_input if role_input in ('student', 'teacher') else 'student'
     
     people = database.get_active_people()
     for p in people:
-        if p[3] == roll:
+        if p[1].lower() == name.lower():
+            logger.error(f"Name '{name}' already registered")
+            return False
+        if p[3] and p[3].lower() == roll.lower():
             logger.error(f"Roll number {roll} already registered")
             return False
     
-    logger.info(f"Registering: {name} ({roll})")
+    folder_name = _generate_folder_name(name, roll, role)
+    person_dir = config.DATASET_DIR / folder_name
     
-    camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
-    if not camera.isOpened():
-        logger.error("Cannot access camera")
+    if person_dir.exists():
+        logger.error(f"Dataset folder already exists: {folder_name}")
         return False
     
-    cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
-    if cascade.empty():
-        logger.error("Cannot load face detector")
-        camera.release()
-        return False
-    
-    safe_name = name.replace(" ", "_").lower()
-    safe_roll = roll.replace(" ", "_").lower()
-    person_dir = config.DATASET_DIR / f"{safe_name}_{safe_roll}_{role}"
-    person_dir.mkdir(exist_ok=True)
-    
-    person_id = database.add_person(name, role, roll)
-    logger.info(f"Added to database (ID: {person_id})")
-    
-    count = 0
-    target = config.ATTENDANCE_CONFIG["samples_per_person"]
-    
-    logger.info(f"Capturing {target} face images")
-    print("\nPress SPACE to capture, Q to quit\n")
-    
-    while count < target:
-        ret, frame = camera.read()
-        if not ret:
-            break
+    camera = None
+    try:
+        camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
+        if not camera.isOpened():
+            logger.error("Cannot access camera")
+            return False
         
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = cascade.detectMultiScale(gray, 1.3, 5)
+        cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
+        if cascade.empty():
+            logger.error("Cannot load face detector")
+            return False
         
-        for (x, y, w, h) in faces:
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+        person_dir.mkdir(exist_ok=True)
         
-        cv2.putText(frame, f"{name} ({roll})", (10, 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.putText(frame, f"Captured: {count}/{target}",
-                   (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        cv2.putText(frame, "SPACE=capture | Q=quit",
-                   (10, frame.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        person_id = database.add_person(name, role, roll)
+        logger.info(f"Added to database (ID: {person_id})")
         
-        if len(faces) == 1:
-            cv2.putText(frame, "Face detected!", (10, 90),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-        elif len(faces) == 0:
-            cv2.putText(frame, "No face detected",
-                       (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        count = 0
+        target = config.ATTENDANCE_CONFIG["samples_per_person"]
+        min_required = 5
         
-        cv2.imshow("Registration", frame)
+        logger.info(f"Capturing {target} face images (minimum {min_required})")
+        print(f"\nPress SPACE to capture, Q to quit (minimum {min_required} images required)\n")
         
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            break
-        elif key == ord(' ') and len(faces) == 1:
-            x, y, w, h = faces[0]
-            face = gray[y:y+h, x:x+w]
-            face = cv2.resize(face, tuple(config.ATTENDANCE_CONFIG["image_size"]))
+        while count < target:
+            ret, frame = camera.read()
+            if not ret:
+                logger.warning("Camera read failed")
+                break
             
-            filename = f"{safe_name}_{safe_roll}_{count}.jpg"
-            cv2.imwrite(str(person_dir / filename), face)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = cascade.detectMultiScale(gray, 1.3, 5)
             
-            count += 1
-            logger.debug(f"Captured {count}/{target}")
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            
+            display_name = f"{name} ({roll})"[:40]
+            cv2.putText(frame, display_name, (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.putText(frame, f"Captured: {count}/{target}",
+                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            cv2.putText(frame, "SPACE=capture | Q=quit",
+                       (10, frame.shape[0]-20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
+            face_status = "Face detected!" if len(faces) == 1 else ("No face" if len(faces) == 0 else "Multiple faces")
+            color = (0, 255, 0) if len(faces) == 1 else (0, 0, 255)
+            cv2.putText(frame, face_status, (10, 90),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+            
+            cv2.imshow("Registration", frame)
+            
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord(' ') and len(faces) == 1:
+                x, y, w, h = faces[0]
+                face = gray[y:y+h, x:x+w]
+                face = cv2.resize(face, tuple(config.ATTENDANCE_CONFIG["image_size"]))
+                
+                filename = f"{folder_name}_{count}.jpg"
+                success = cv2.imwrite(str(person_dir / filename), face)
+                
+                if success:
+                    count += 1
+                    logger.debug(f"Captured {count}/{target}")
     
-    camera.release()
-    cv2.destroyAllWindows()
+    finally:
+        if camera:
+            camera.release()
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
     
-    if count > 0:
+    if count >= min_required:
         logger.info(f"Registered: {name} ({roll}) with {count} images")
         print(f"\n[SUCCESS] Registered: {name} ({roll})")
         print(f"[INFO] Captured {count} images")
         print(f"[INFO] Run 'python train.py' to train the model")
         return True
     else:
-        logger.warning("No images captured")
+        logger.warning(f"Insufficient images captured ({count}/{min_required}) - rolling back")
+        database.remove_person(name)
+        if person_dir.exists():
+            shutil.rmtree(person_dir, ignore_errors=True)
+        print(f"\n[FAILED] Registration cancelled: need at least {min_required} images")
         return False
 
 
 def list_people():
-    """List all registered people"""
+    """List all registered people."""
     people = database.get_active_people()
     
     if not people:
@@ -133,7 +158,7 @@ def list_people():
     print("-"*60)
     
     for p in people:
-        name = p[1][:24]
+        name = str(p[1])[:24]
         roll = p[3] or '-'
         role = p[2]
         print(f"{name:<25} {roll:<15} {role:<10}")
@@ -144,16 +169,15 @@ def list_people():
 
 
 def remove_person(name):
-    """Remove a person from the system"""
+    """Remove a person from the system."""
     try:
         engine = attendance_engine.get_engine()
         engine.remove_person_safe(name)
-    except Exception as e:
+    except Exception:
         database.remove_person(name)
-        safe_name = name.replace(" ", "_").lower()
+        folder_name = _generate_folder_name(name, "", "student")
         for folder in config.DATASET_DIR.iterdir():
-            if folder.is_dir() and safe_name in folder.name.lower():
-                import shutil
+            if folder.is_dir() and folder.name.startswith(folder_name.split("_")[0]):
                 shutil.rmtree(folder, ignore_errors=True)
                 break
     
@@ -179,6 +203,8 @@ if __name__ == "__main__":
             list_people()
         elif choice == '3':
             name = input("Enter name to remove: ").strip()
+            if not name:
+                continue
             confirm = input(f"Remove '{name}'? (yes/no): ").strip().lower()
             if confirm == 'yes':
                 remove_person(name)

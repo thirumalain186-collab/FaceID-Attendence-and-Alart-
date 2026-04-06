@@ -42,8 +42,10 @@ class AttendanceEngine:
         self.alert_lock = threading.Lock()
         self.movement_lock = threading.Lock()
         
-        self.demo_mode = False
+        self._is_demo_mode = False
+        self._is_headless = False
         self.demo_timer = 0
+        self._last_reset_date = date.today()
         
         self.load_resources()
     
@@ -107,25 +109,34 @@ class AttendanceEngine:
         
         logger.info(f"Removed {name} from system")
     
-    def start_camera(self, mode="attendance", demo_mode=False):
-        """Start camera in specified mode"""
+    def start_camera(self, mode="attendance", demo_mode=False, headless=False):
+        """Start camera in specified mode.
+        
+        Args:
+            mode: "attendance" or "monitoring"
+            demo_mode: Show GUI window (False = real camera, True = demo window)
+            headless: No GUI at all (True forces headless regardless of demo_mode)
+        """
         if self.running:
             logger.warning("Camera already running")
             return
         
         self.running = True
         self.mode = mode
-        self.demo_mode = demo_mode
+        self._is_headless = bool(headless)
+        self._is_demo_mode = bool(demo_mode) or self._is_headless
         self.demo_timer = 0
         
-        if not demo_mode:
+        if not self._is_demo_mode:
             self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
             
             if not self.camera.isOpened():
-                logger.error("Cannot open camera - starting in DEMO mode")
-                self.demo_mode = True
+                logger.error("Cannot open camera - starting in demo mode")
+                self._is_demo_mode = True
         
-        if self.demo_mode:
+        if self._is_headless:
+            logger.info(f"HEADLESS mode started in {mode} mode (no display)")
+        elif self._is_demo_mode:
             logger.info(f"DEMO mode started in {mode} mode (no camera)")
         else:
             logger.info(f"Camera started in {mode} mode")
@@ -145,15 +156,14 @@ class AttendanceEngine:
         logger.info("Camera stopped")
     
     def _camera_loop(self):
-        """Main camera processing loop"""
+        """Main camera processing loop."""
         while self.running:
-            if self.demo_mode:
-                if self.demo_mode == "headless":
-                    self._headless_loop()
-                    continue
-                else:
-                    self._demo_loop()
-                    continue
+            if self._is_headless:
+                self._headless_loop()
+                continue
+            elif self._is_demo_mode:
+                self._demo_loop()
+                continue
             
             ret, frame = self.camera.read()
             if not ret:
@@ -169,31 +179,30 @@ class AttendanceEngine:
             self._process_frame(frame)
             self._show_frame_safe(frame)
             
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                self.stop_camera()
-                break
+            if not self._is_headless:
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    self.stop_camera()
+                    break
     
     def _headless_loop(self):
-        """Headless mode - no display, for server environments"""
+        """Headless mode - no display, for server environments."""
+        self._check_midnight_reset()
         self.frame_count += 1
         self.demo_timer += 1
         
         if self.demo_timer % 10 == 0:
-            logger.info(f"Headless: {self.mode} - Frame: {self.frame_count}, Marked: {len(self.marked_today)}")
+            with self.face_lock:
+                label_count = len(self.label_names)
+            logger.info(f"Headless: {self.mode} - Frame: {self.frame_count}, Registered: {label_count}, Marked: {len(self.marked_today)}")
             
-            if self.mode == "attendance" and len(self.label_names) > 0:
-                unmarked = [info for info in self.label_names.values() 
-                          if info['original_name'] not in self.marked_today]
-                
-                if unmarked:
-                    person = unmarked[0]
-                    self._mark_attendance(person['original_name'], person['role'], person['roll'])
+            if self.mode == "attendance" and label_count > 0:
+                self._auto_mark_attendance()
         
         time.sleep(1)
     
     def _demo_loop(self):
-        """Demo mode - shows placeholder window"""
+        """Demo mode - shows placeholder window."""
         try:
             frame = np.zeros((480, 640, 3), dtype=np.uint8)
             cv2.putText(frame, "DEMO MODE - No Camera Connected", (120, 180),
@@ -202,20 +211,18 @@ class AttendanceEngine:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             cv2.putText(frame, datetime.now().strftime("%d %b %Y %H:%M:%S"), (200, 270),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-            cv2.putText(frame, f"Registered: {len(self.label_names)} | Marked: {len(self.marked_today)}", (170, 310),
+            with self.face_lock:
+                label_count = len(self.label_names)
+            cv2.putText(frame, f"Registered: {label_count} | Marked: {len(self.marked_today)}", (170, 310),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
             
             self.frame_count += 1
             self.demo_timer += 1
             
-            if self.mode == "attendance" and self.demo_timer % 60 == 0 and len(self.label_names) > 0:
-                unmarked = [info for info in self.label_names.values() 
-                          if info['original_name'] not in self.marked_today]
-                
-                if unmarked:
-                    person = unmarked[0]
-                    self._mark_attendance(person['original_name'], person['role'], person['roll'])
-                    cv2.putText(frame, f"[AUTO] Marked: {person['original_name']}", (200, 400),
+            if self.mode == "attendance" and self.demo_timer % 60 == 0 and label_count > 0:
+                marked = self._auto_mark_attendance()
+                for name in marked:
+                    cv2.putText(frame, f"[AUTO] Marked: {name}", (200, 400),
                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
             self._show_frame_safe(frame)
@@ -226,10 +233,36 @@ class AttendanceEngine:
                 self.stop_camera()
         except Exception as e:
             logger.warning(f"GUI not available, switching to headless: {e}")
-            self.demo_mode = "headless"
+            self._is_headless = True
+    
+    def _auto_mark_attendance(self):
+        """Mark all unmarked people in demo/headless mode. Returns list of names marked."""
+        marked = []
+        with self.face_lock:
+            label_names_snapshot = dict(self.label_names)
+        
+        for label_id, info in label_names_snapshot.items():
+            name_lower = info['original_name'].lower()
+            if name_lower not in self.marked_today:
+                success = database.mark_attendance(info['original_name'], info['roll'])
+                if success:
+                    self.marked_today.add(name_lower)
+                    marked.append(info['original_name'])
+                    logger.info(f"Attendance marked (auto): {info['original_name']}")
+        return marked
+    
+    def _check_midnight_reset(self):
+        """Reset marked_today at midnight."""
+        today = date.today()
+        if today > self._last_reset_date:
+            self.marked_today.clear()
+            self.last_seen.clear()
+            self.last_alert_time.clear()
+            self._last_reset_date = today
+            logger.info("Midnight reset - cleared attendance tracking")
     
     def _process_frame(self, frame):
-        """Process single frame with thread safety"""
+        """Process single frame with thread safety."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
         faces = self.cascade.detectMultiScale(
@@ -241,19 +274,23 @@ class AttendanceEngine:
         
         current_time = time.time()
         
-        for i, (x, y, w, h) in enumerate(faces):
+        with self.face_lock:
+            label_names_snapshot = dict(self.label_names)
+        
+        for (x, y, w, h) in faces:
             face_roi = gray[y:y+h, x:x+w]
             face_resized = cv2.resize(face_roi, tuple(config.ATTENDANCE_CONFIG["image_size"]))
             
             try:
-                with self.face_lock:
-                    label, confidence = self.recognizer.predict(face_resized)
+                if self.recognizer is None:
+                    continue
+                
+                label, confidence = self.recognizer.predict(face_resized)
                 
                 lbph_confidence = max(0, 100 - confidence)
                 
                 if confidence < config.ATTENDANCE_CONFIG["confidence_threshold"]:
-                    with self.face_lock:
-                        face_info = self.label_names.get(label, {})
+                    face_info = label_names_snapshot.get(label, {})
                     
                     if face_info:
                         name = face_info['original_name']
@@ -264,7 +301,7 @@ class AttendanceEngine:
                         color = (0, 200, 0) if role == 'student' else (200, 150, 0)
                         
                         if self.mode == "attendance":
-                            self._mark_attendance(name, role, roll)
+                            self._mark_attendance(name, role, roll, lbph_confidence)
                         elif self.mode == "monitoring":
                             self._log_movement(name, role)
                     else:
@@ -300,14 +337,15 @@ class AttendanceEngine:
         hash_input = f"{x}_{y}_{w}_{h}_{timestamp}"
         return hashlib.md5(hash_input.encode()).hexdigest()[:12]
     
-    def _mark_attendance(self, name, role, roll):
-        """Mark attendance - thread safe"""
+    def _mark_attendance(self, name, role, roll, confidence=None):
+        """Mark attendance - thread safe."""
+        self._check_midnight_reset()
         name_lower = name.lower()
         
         if name_lower in self.marked_today:
             return
         
-        if database.mark_attendance(name, roll):
+        if database.mark_attendance(name, roll, confidence=confidence):
             self.marked_today.add(name_lower)
             logger.info(f"Attendance marked: {name}")
     
@@ -374,14 +412,17 @@ class AttendanceEngine:
             logger.debug(f"Cannot display frame (headless mode): {e}")
     
     def get_status(self):
-        """Get status"""
+        """Get status."""
+        with self.face_lock:
+            registered = len(self.label_names)
         return {
             'running': self.running,
             'mode': self.mode,
             'frames': self.frame_count,
-            'registered': len(self.label_names),
+            'registered': registered,
             'marked': len(self.marked_today),
-            'demo_mode': self.demo_mode
+            'headless': self._is_headless,
+            'demo_mode': self._is_demo_mode
         }
 
 

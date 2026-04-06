@@ -1,12 +1,10 @@
 """
 Training Module for Smart Attendance System v2
 Train LBPH Face Recognizer
-FIXED: Robust folder parsing, proper database lookup
 """
 
 import cv2
 import numpy as np
-from PIL import Image
 from pathlib import Path
 import config
 import database
@@ -15,8 +13,48 @@ from logger import get_logger
 logger = get_logger()
 
 
+def _best_match(folder_name, person_map):
+    """Find best matching person for a folder name."""
+    folder_lower = folder_name.lower()
+    matches = []
+    
+    for safe_name, person_info in person_map.items():
+        if safe_name in folder_lower:
+            score = len(safe_name)
+            matches.append((score, person_info))
+    
+    if not matches:
+        return None
+    
+    matches.sort(key=lambda x: x[0], reverse=True)
+    return matches[0][1]
+
+
+def _extract_roll_from_folder(folder_name):
+    """Extract roll number from folder name."""
+    parts = folder_name.replace("_", " ").replace("-", " ").split()
+    for part in parts:
+        if part.isdigit() and len(part) >= 3:
+            return part
+    return ""
+
+
+def _load_image(image_path, target_size):
+    """Load and preprocess image. Returns grayscale numpy array or None."""
+    try:
+        img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        if img.shape[0] < 20 or img.shape[1] < 20:
+            return None
+        img = cv2.resize(img, target_size)
+        return img
+    except Exception:
+        return None
+
+
 def train_model():
-    """Train the face recognition model"""
+    """Train the face recognition model."""
     logger.info("Starting model training")
     
     faces = []
@@ -43,39 +81,34 @@ def train_model():
         person_map[safe_name] = {
             'id': person_id,
             'name': name,
-            'role': role,
+            'role': role.lower(),
             'roll': roll
         }
     
+    target_size = tuple(config.ATTENDANCE_CONFIG["image_size"])
+    threshold = float(config.ATTENDANCE_CONFIG.get("confidence_threshold", 100))
+    
     label_id = 0
+    total_images = 0
+    skipped_images = 0
     
     for user_folder in sorted(user_folders):
         folder_name = user_folder.name
         
-        matched_person = None
-        for safe_name, person_info in person_map.items():
-            if safe_name in folder_name.lower():
-                matched_person = person_info
-                break
+        matched_person = _best_match(folder_name, person_map)
         
         if matched_person:
             person_name = matched_person['name']
             role = matched_person['role']
             roll = matched_person['roll']
         else:
-            folder_safe = folder_name.replace("_", " ").replace("-", " ").strip()
-            name_candidates = [w.title() for w in folder_safe.split() if w.isalpha()]
+            name_parts = folder_name.replace("_", " ").replace("-", " ").split()
+            name_candidates = [w.title() for w in name_parts if w.isalpha()]
             person_name = " ".join(name_candidates) if name_candidates else folder_name
             role = "student"
-            roll = ""
-            
-            for part in folder_name.replace("_", " ").split():
-                if part.isdigit() and len(part) >= 2:
-                    roll = part
-                    break
+            roll = _extract_roll_from_folder(folder_name)
         
         display = f"{person_name} ({roll or role})"
-        label_names[label_id] = display
         
         image_files = list(user_folder.glob("*.jpg")) + list(user_folder.glob("*.png"))
         
@@ -87,34 +120,35 @@ def train_model():
         
         valid_count = 0
         for image_file in image_files:
-            try:
-                pil_image = Image.open(image_file).convert('L')
-                numpy_image = np.array(pil_image, 'uint8')
-                numpy_image = cv2.resize(numpy_image, tuple(config.ATTENDANCE_CONFIG["image_size"]))
-                
-                faces.append(numpy_image)
-                labels.append(label_id)
-                valid_count += 1
-            except Exception as e:
-                logger.warning(f"Error loading image {image_file}: {e}")
+            img = _load_image(image_file, target_size)
+            if img is None:
+                skipped_images += 1
+                logger.debug(f"Skipped invalid image: {image_file.name}")
+                continue
+            
+            faces.append(img)
+            labels.append(label_id)
+            valid_count += 1
         
         if valid_count > 0:
+            label_names[label_id] = display
+            total_images += valid_count
             label_id += 1
     
     if not faces:
         logger.error("No valid face images found")
+        logger.error(f"Skipped {skipped_images} invalid images across all folders")
         return False
     
-    logger.info(f"Training with {len(faces)} images, {len(label_names)} users")
-    logger.info("Training model...")
+    logger.info(f"Training with {total_images} images, {len(label_names)} users")
     
     try:
         recognizer = cv2.face.LBPHFaceRecognizer_create(
-            radius=1, 
-            neighbors=8, 
-            grid_x=8, 
-            grid_y=8, 
-            threshold=float(config.ATTENDANCE_CONFIG.get("confidence_threshold", 100))
+            radius=1,
+            neighbors=8,
+            grid_x=8,
+            grid_y=8,
+            threshold=threshold
         )
         
         faces_array = np.array(faces, dtype='uint8')
