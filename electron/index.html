@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; img-src 'self' data:; connect-src 'self' http://localhost:*;">
+    <title>Smart Attendance System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; }
+        
+        .header {
+            background: linear-gradient(135deg, #1a237e, #3949ab);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            -webkit-app-region: drag;
+        }
+        .header h1 { font-size: 18px; }
+        .header-controls button {
+            -webkit-app-region: no-drag;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            margin-left: 5px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .header-controls button:hover { background: rgba(255,255,255,0.3); }
+        
+        .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 { color: #666; font-size: 14px; margin-bottom: 10px; }
+        .stat-card .value { font-size: 32px; font-weight: bold; color: #1a237e; }
+        
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            color: #1a237e;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e8eaf6;
+        }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f5f5f5; color: #666; font-weight: 600; }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .btn-primary { background: #1a237e; color: white; }
+        .btn-success { background: #4caf50; color: white; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-warning { background: #ff9800; color: white; }
+        .btn:hover { opacity: 0.9; }
+        
+        .actions { margin-top: 15px; }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+            color: white;
+        }
+        .status-running { background: #4caf50; }
+        .status-stopped { background: #f44336; }
+        .status-demo { background: #ff9800; }
+        
+        .loading { text-align: center; padding: 20px; color: #666; }
+        .error { color: #f44336; padding: 10px; background: #ffebee; border-radius: 4px; }
+        
+        .system-info {
+            background: #e8eaf6;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Smart Attendance System v2</h1>
+        <div class="header-controls">
+            <button onclick="minimizeWindow()">─</button>
+            <button onclick="maximizeWindow()">□</button>
+            <button onclick="closeWindow()">✕</button>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Total Students</h3>
+                <div class="value" id="total-students">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Present Today</h3>
+                <div class="value" id="present-today">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Attendance Rate</h3>
+                <div class="value" id="attendance-rate">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Alerts Today</h3>
+                <div class="value" id="alerts-today">-</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Quick Actions</h2>
+            <div class="actions">
+                <button class="btn btn-primary" onclick="startCamera('attendance', false, false)">📷 Start Attendance</button>
+                <button class="btn btn-primary" onclick="startCamera('monitoring', false, false)">👁 Start Monitoring</button>
+                <button class="btn btn-warning" onclick="startCamera('attendance', true, false)">🎭 Demo Mode</button>
+                <button class="btn btn-success" onclick="startCamera('attendance', false, true)">⚡ Headless Mode</button>
+                <button class="btn btn-success" onclick="sendReport()">📧 Send Report</button>
+                <button class="btn btn-danger" onclick="stopCamera()">⏹ Stop</button>
+            </div>
+            <p style="margin-top: 15px; color: #666;">
+                Status: <span id="camera-status" class="status-badge status-stopped">Stopped</span>
+                <span id="status-info"></span>
+            </p>
+        </div>
+        
+        <div class="card">
+            <h2>Today's Attendance</h2>
+            <div id="attendance-list">
+                <p class="loading">Loading...</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Registered People</h2>
+            <div id="people-list">
+                <p class="loading">Loading...</p>
+            </div>
+        </div>
+        
+        <div class="system-info">
+            <strong>System Info:</strong> 
+            Platform: <span id="platform">Desktop</span> | 
+            Backend: <span id="backend-status">Checking...</span> |
+            Time: <span id="current-time"></span>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:5000/api/v1';
+        
+        // Window controls
+        function minimizeWindow() { window.electronAPI?.minimize(); }
+        function maximizeWindow() { window.electronAPI?.maximize(); }
+        function closeWindow() { window.electronAPI?.close(); }
+        
+        // Update time
+        function updateTime() {
+            document.getElementById('current-time').textContent = new Date().toLocaleString();
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+        
+        // Platform
+        document.getElementById('platform').textContent = window.electronAPI?.platform || 'Desktop';
+        
+        // Load stats
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/stats`);
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('total-students').textContent = data.total_students || 0;
+                    document.getElementById('present-today').textContent = data.present_students || 0;
+                    document.getElementById('attendance-rate').textContent = (data.attendance_rate || 0) + '%';
+                    document.getElementById('alerts-today').textContent = data.alerts_today || 0;
+                    document.getElementById('backend-status').textContent = 'Connected ✓';
+                    document.getElementById('backend-status').style.color = 'green';
+                } else {
+                    throw new Error('Backend not ready');
+                }
+            } catch (e) {
+                document.getElementById('backend-status').textContent = 'Disconnected ✗';
+                document.getElementById('backend-status').style.color = 'red';
+            }
+        }
+        
+        // Load attendance
+        async function loadAttendance() {
+            try {
+                const res = await fetch(`${API_BASE}/attendance/today`);
+                const data = await res.json();
+                const container = document.getElementById('attendance-list');
+                
+                if (data.data && data.data.length > 0) {
+                    let html = `<table><tr><th>#</th><th>Name</th><th>Roll No</th><th>Time</th><th>Status</th></tr>`;
+                    data.data.forEach((item, i) => {
+                        html += `<tr><td>${i+1}</td><td>${item.name}</td><td>${item.roll || '-'}</td><td>${item.time}</td><td>${item.status}</td></tr>`;
+                    });
+                    html += '</table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p>No attendance records today.</p>';
+                }
+            } catch (e) {
+                document.getElementById('attendance-list').innerHTML = '<p class="error">Could not load attendance.</p>';
+            }
+        }
+        
+        // Load people
+        async function loadPeople() {
+            try {
+                const res = await fetch(`${API_BASE}/people`);
+                const data = await res.json();
+                const container = document.getElementById('people-list');
+                
+                if (data.data && data.data.length > 0) {
+                    let html = `<table><tr><th>#</th><th>Name</th><th>Roll No</th><th>Role</th></tr>`;
+                    data.data.forEach((item, i) => {
+                        html += `<tr><td>${i+1}</td><td>${item.name}</td><td>${item.roll || '-'}</td><td>${item.role}</td></tr>`;
+                    });
+                    html += '</table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<p>No registered people.</p>';
+                }
+            } catch (e) {
+                document.getElementById('people-list').innerHTML = '<p class="error">Could not load people.</p>';
+            }
+        }
+        
+        // Camera controls
+        async function startCamera(mode, demo, headless) {
+            try {
+                const res = await fetch(`${API_BASE}/camera/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode, demo, headless })
+                });
+                const data = await res.json();
+                
+                document.getElementById('camera-status').textContent = data.mode.toUpperCase();
+                document.getElementById('camera-status').className = 'status-badge status-running';
+                
+                let info = data.headless ? ' (Headless - No Display)' : data.demo ? ' (Demo Mode)' : ' (Live Camera)';
+                document.getElementById('status-info').textContent = info;
+                
+                alert(`Camera started: ${data.mode}${info}`);
+            } catch (e) {
+                alert('Error starting camera. Make sure backend is running!');
+            }
+        }
+        
+        async function stopCamera() {
+            try {
+                await fetch(`${API_BASE}/camera/stop`, { method: 'POST' });
+                document.getElementById('camera-status').textContent = 'Stopped';
+                document.getElementById('camera-status').className = 'status-badge status-stopped';
+                document.getElementById('status-info').textContent = '';
+                alert('Camera stopped');
+            } catch (e) {
+                alert('Error stopping camera');
+            }
+        }
+        
+        async function sendReport() {
+            try {
+                await fetch(`${API_BASE}/email/send-report`, { method: 'POST' });
+                alert('Report sent successfully!');
+            } catch (e) {
+                alert('Error sending report');
+            }
+        }
+        
+        // Initial load
+        loadStats();
+        loadAttendance();
+        loadPeople();
+        
+        // Refresh every 10 seconds
+        setInterval(() => {
+            loadStats();
+            loadAttendance();
+            loadPeople();
+        }, 10000);
+    </script>
+</body>
+</html>

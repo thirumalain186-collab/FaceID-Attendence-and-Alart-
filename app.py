@@ -218,8 +218,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("   SMART ATTENDANCE SYSTEM - Web Dashboard")
     print("=" * 60)
-    print(f"   → Dashboard: http://localhost:{config.FLASK_PORT}")
-    print(f"   → API: http://localhost:{config.FLASK_PORT}/api")
+    print(f"   -> Dashboard: http://localhost:{config.FLASK_PORT}")
+    print(f"   -> API: http://localhost:{config.FLASK_PORT}/api")
     print("=" * 60 + "\n")
     
     database.init_database()
