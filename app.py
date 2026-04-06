@@ -13,8 +13,6 @@ from datetime import date, datetime, timedelta
 from functools import wraps
 from threading import Lock
 from PIL import Image
-import numpy as np
-import cv2
 
 import config
 import database
@@ -339,17 +337,12 @@ def api_register_upload():
         for i, img_file in enumerate(images[:50]):
             if img_file and img_file.filename:
                 try:
-                    import numpy as np
-                    import cv2
-                    from PIL import Image
-                    import io
-                    
-                    img = Image.open(img_file.stream).convert('RGB')
+                    img = Image.open(img_file.stream).convert('L')
                     img = img.resize((200, 200))
                     
                     filename = f"{safe_name}_{roll}_{i}.jpg"
                     filepath = person_dir / filename
-                    img.save(str(filepath), "JPEG", quality=95)
+                    img.save(str(filepath), "JPEG")
                     saved_count += 1
                 except Exception as e:
                     logger.warning(f"Failed to save image {i}: {e}")
