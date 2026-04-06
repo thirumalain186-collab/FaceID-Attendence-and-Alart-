@@ -4,10 +4,13 @@ Optional Flask-based web interface for attendance management
 """
 
 from flask import Flask, render_template, jsonify, request, Response
+from flask_cors import CORS
 import io
 import csv
+import time
 from datetime import date, datetime, timedelta
 from functools import wraps
+from threading import Lock
 
 import config
 import database
@@ -23,6 +26,41 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
 )
+
+CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+_rate_limit_store = {}
+_rate_limit_lock = Lock()
+
+
+def rate_limit(calls=30, period=60):
+    """Rate limiting decorator - max calls per period seconds."""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            client_ip = request.remote_addr or 'unknown'
+            key = f"{client_ip}:{f.__name__}"
+            
+            with _rate_limit_lock:
+                now = time.time()
+                if key in _rate_limit_store:
+                    requests, first_call = _rate_limit_store[key]
+                    if now - first_call < period:
+                        if requests >= calls:
+                            return jsonify({"error": "Rate limit exceeded"}), 429
+                        _rate_limit_store[key] = (requests + 1, first_call)
+                    else:
+                        _rate_limit_store[key] = (1, now)
+                else:
+                    _rate_limit_store[key] = (1, now)
+                
+                for k in list(_rate_limit_store.keys()):
+                    if now - _rate_limit_store[k][1] > 300:
+                        del _rate_limit_store[k]
+            
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
 
 
 def _sanitize_string(value, max_length=200):
@@ -71,11 +109,14 @@ def api_stats():
 
 
 @app.route("/api/v1/attendance/today")
+@rate_limit(calls=60, period=60)
 def api_today_attendance():
     """Get today's attendance records."""
     attendance = database.get_today_attendance()
     records = [
         {
+            "id": r.get('id') if isinstance(r.get('id'), int) else None,
+            "person_id": r.get('person_id') if isinstance(r.get('person_id'), int) else None,
             "name": _sanitize_string(r.get('name', '')),
             "roll": _sanitize_string(r.get('roll_number', '')),
             "date": r.get('date', ''),
@@ -88,12 +129,13 @@ def api_today_attendance():
 
 
 @app.route("/api/v1/people")
+@rate_limit(calls=60, period=60)
 def api_people():
     """Get all registered people."""
     people = database.get_active_people()
     records = [
         {
-            "id": p.get('id'),
+            "id": p.get('id') if isinstance(p.get('id'), int) else None,
             "name": _sanitize_string(p.get('name', '')),
             "role": p.get('role', ''),
             "roll": _sanitize_string(p.get('roll_number', '')),
@@ -107,6 +149,7 @@ def api_people():
 
 @app.route("/api/v1/camera/start", methods=["POST"])
 @require_json
+@rate_limit(calls=10, period=60)
 def start_camera():
     """Start camera in background thread."""
     from attendance_engine import get_engine
@@ -262,8 +305,10 @@ if __name__ == "__main__":
     
     database.init_database()
     
+    run_debug = config.FLASK_DEBUG and not config.FLASK_HOST == "0.0.0.0"
+    
     app.run(
-        debug=config.FLASK_DEBUG,
+        debug=run_debug,
         host=config.FLASK_HOST,
         port=config.FLASK_PORT,
         use_reloader=False,

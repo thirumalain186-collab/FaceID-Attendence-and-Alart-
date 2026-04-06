@@ -95,9 +95,9 @@ def view_today():
     print(f"Present: {stats.get('present_today', 0)} | Rate: {stats.get('attendance_rate', 0)}%\n")
     
     for i, record in enumerate(attendance, 1):
-        name = record.get('name', '-') if isinstance(record, dict) else (record[2] if len(record) > 2 else '-')
-        roll = record.get('roll_number') if isinstance(record, dict) else (record[3] if len(record) > 3 else '-')
-        time_in = record.get('time_in', '-') if isinstance(record, dict) else (record[5] if len(record) > 5 else '-')
+        name = record.get('name', '-') if isinstance(record, dict) else '-'
+        roll = record.get('roll_number') if isinstance(record, dict) else '-'
+        time_in = record.get('time_in', '-') if isinstance(record, dict) else '-'
         print(f"{i}. {name} ({roll or '-'}) - {time_in}")
 
 
@@ -118,9 +118,9 @@ def view_alerts():
         return
     
     for alert in alerts:
-        ts_str = alert.get('timestamp', '') if isinstance(alert, dict) else (alert[1] if len(alert) > 1 else '')
-        alert_id = alert.get('alert_id', '') if isinstance(alert, dict) else (alert[7] if len(alert) > 7 else 'ALERT')
-        sent = alert.get('alert_sent', 0) if isinstance(alert, dict) else (alert[6] if len(alert) > 6 else 0)
+        ts_str = alert.get('timestamp', '') if isinstance(alert, dict) else ''
+        alert_id = alert.get('alert_id', '') if isinstance(alert, dict) else ''
+        sent = alert.get('alert_sent', 0) if isinstance(alert, dict) else 0
         
         ts = _parse_timestamp(ts_str)
         ts_str_fmt = ts.strftime('%d %b %H:%M') if ts else ts_str[:16]

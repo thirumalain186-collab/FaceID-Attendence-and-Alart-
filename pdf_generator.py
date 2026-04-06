@@ -87,8 +87,8 @@ def _parse_timestamp(ts_str):
 def generate_daily_report():
     """Generate daily attendance PDF report. Returns: path to saved PDF."""
     today = date.today()
-    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG["class_name"]
-    college_name = database.get_setting("college_name") or config.ATTENDANCE_CONFIG["college_name"]
+    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG.get("class_name", "")
+    college_name = database.get_setting("college_name") or config.ATTENDANCE_CONFIG.get("college_name", "")
     
     filename = f"daily_report_{today.strftime('%Y%m%d')}.pdf"
     filepath = get_reports_dir() / filename
@@ -215,16 +215,10 @@ def generate_monthly_report():
         logger.warning("No active batch found for monthly report")
         return None
     
-    if isinstance(batch, dict):
-        start_date_str = batch.get('start_date', '')
-        end_date_str = batch.get('end_date', '')
-        batch_id = batch.get('id', 0)
-        batch_status = batch.get('status', 'active')
-    else:
-        start_date_str = batch[1]
-        end_date_str = batch[2]
-        batch_id = batch[0]
-        batch_status = batch[4] if len(batch) > 4 else 'active'
+    start_date_str = batch.get('start_date', '')
+    end_date_str = batch.get('end_date', '')
+    batch_id = batch.get('id', 0)
+    batch_status = batch.get('status', 'active')
     
     try:
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
@@ -233,8 +227,8 @@ def generate_monthly_report():
         logger.error(f"Invalid batch dates: {e}")
         return None
     
-    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG["class_name"]
-    college_name = database.get_setting("college_name") or config.ATTENDANCE_CONFIG["college_name"]
+    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG.get("class_name", "")
+    college_name = database.get_setting("college_name") or config.ATTENDANCE_CONFIG.get("college_name", "")
     
     filename = f"monthly_report_{start_date.strftime('%Y%m')}.pdf"
     filepath = get_reports_dir() / filename
@@ -396,8 +390,8 @@ def generate_monthly_report():
 def generate_alert_pdf(image_path):
     """Generate security alert PDF with intruder photo. Returns: path to saved PDF."""
     timestamp = datetime.now()
-    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG["class_name"]
-    college_name = database.get_setting("college_name") or config.ATTENDANCE_CONFIG["college_name"]
+    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG.get("class_name", "")
+    college_name = database.get_setting("college_name") or config.ATTENDANCE_CONFIG.get("college_name", "")
     alert_id = f"ALERT-{timestamp.strftime('%Y%m%d%H%M%S')}"
     
     filename = f"alert_{timestamp.strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -516,7 +510,7 @@ def generate_alert_pdf(image_path):
 def generate_end_of_day_report():
     """Generate end-of-day summary with movement report. Returns: path to saved PDF."""
     today = date.today()
-    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG["class_name"]
+    class_name = database.get_setting("class_name") or config.ATTENDANCE_CONFIG.get("class_name", "")
     
     filename = f"end_of_day_{today.strftime('%Y%m%d')}.pdf"
     filepath = get_reports_dir() / filename

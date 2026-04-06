@@ -108,12 +108,11 @@ def train_model():
             person_name = matched_person['name']
             role = matched_person['role']
             roll = matched_person['roll']
+            person_id = matched_person['id']
+            logger.debug(f"Matched folder '{folder_name}' to person ID {person_id}")
         else:
-            name_parts = folder_name.replace("_", " ").replace("-", " ").split()
-            name_candidates = [w.title() for w in name_parts if w.isalpha()]
-            person_name = " ".join(name_candidates) if name_candidates else folder_name
-            role = "student"
-            roll = _extract_roll_from_folder(folder_name)
+            logger.warning(f"Folder '{folder_name}' not matched to any registered person - skipping")
+            continue
         
         display = f"{person_name} ({roll or role})"
         

@@ -59,26 +59,30 @@ def register_person_webcam():
         logger.error(f"Dataset folder already exists: {folder_name}")
         return False
     
+    person_id = None
     camera = None
     try:
-        camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG.get("camera_index", 0))
-        if not camera.isOpened():
-            logger.error("Cannot access camera")
-            return False
-        
-        cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
-        if cascade.empty():
-            logger.error("Cannot load face detector")
-            return False
-        
-        person_dir.mkdir(exist_ok=True)
-        
         person_id = database.add_person(name, role, roll)
         if person_id is None:
             logger.error("Failed to add person to database")
             return False
         
         logger.info(f"Added to database (ID: {person_id})")
+        
+        camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG.get("camera_index", 0))
+        if not camera.isOpened():
+            logger.error("Cannot access camera")
+            database.remove_person(name)
+            return False
+        
+        cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
+        if cascade.empty():
+            logger.error("Cannot load face detector")
+            camera.release()
+            database.remove_person(name)
+            return False
+        
+        person_dir.mkdir(exist_ok=True)
         
         count = 0
         target = config.ATTENDANCE_CONFIG.get("samples_per_person", 30)
@@ -140,9 +144,16 @@ def register_person_webcam():
     
     if count >= min_required:
         logger.info(f"Registered: {name} ({roll}) with {count} images")
-        print(f"\n[SUCCESS] Registered: {name} ({roll})")
+        print(f"\n[SUCCESS] Registered: {name} ({roll}) - ID: {person_id}")
         print(f"[INFO] Captured {count} images")
         print(f"[INFO] Run 'python train.py' to train the model")
+        
+        try:
+            engine = attendance_engine.get_engine()
+            engine.reload_faces()
+        except Exception as e:
+            logger.debug(f"Could not reload engine: {e}")
+        
         return True
     else:
         logger.warning(f"Insufficient images captured ({count}/{min_required}) - rolling back")

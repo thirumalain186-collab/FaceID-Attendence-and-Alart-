@@ -28,6 +28,10 @@ def send_email_async(func):
         thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
         thread.start()
         _email_threads.append(thread)
+        
+        while len(_email_threads) > 20:
+            _email_threads.pop(0)
+        
         return thread
     wrapper.__wrapped__ = func
     return wrapper
@@ -217,7 +221,7 @@ def send_unknown_alert(image_path, pdf_path=None):
             <table style="width: 100%;">
                 <tr><td><strong>Date:</strong></td><td>{timestamp.strftime('%d %B %Y')}</td></tr>
                 <tr><td><strong>Time:</strong></td><td>{timestamp.strftime('%I:%M %p')}</td></tr>
-                <tr><td><strong>Location:</strong></td><td>{class_name}</td></tr>
+                <tr><td><strong>Location:</strong></td><td>{_escape_html(class_name)}</td></tr>
                 <tr><td><strong>Alert ID:</strong></td><td>{_escape_html(alert_id)}</td></tr>
             </table>
             <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px;">
@@ -274,7 +278,7 @@ def send_daily_report(csv_path=None, pdf_path=None):
     <body style="font-family: Arial; max-width: 800px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #1a237e, #3949ab); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
             <h2 style="margin: 0;">Daily Attendance Report</h2>
-            <p style="margin: 5px 0 0;">{class_name} - {today.strftime('%d %B %Y')}</p>
+            <p style="margin: 5px 0 0;">{_escape_html(class_name)} - {today.strftime('%d %B %Y')}</p>
         </div>
         <div style="background: #f9f9f9; padding: 20px;">
             <h3>Summary</h3>
@@ -349,10 +353,10 @@ def send_monthly_report(pdf_path):
     <body style="font-family: Arial; max-width: 600px; margin: 0 auto;">
         <div style="background: linear-gradient(135deg, #1a237e, #3949ab); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
             <h2 style="margin: 0;">Monthly Attendance Report</h2>
-            <p style="margin: 5px 0 0;">{class_name} - {month_name}</p>
+            <p style="margin: 5px 0 0;">{_escape_html(class_name)} - {_escape_html(month_name)}</p>
         </div>
         <div style="background: #f9f9fa; padding: 20px;">
-            <p>Please find attached the comprehensive monthly attendance report for {month_name}.</p>
+            <p>Please find attached the comprehensive monthly attendance report for {_escape_html(month_name)}.</p>
             <p>The report includes:</p>
             <ul>
                 <li>Full attendance table with present/absent days</li>

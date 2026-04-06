@@ -264,11 +264,16 @@ class AttendanceEngine:
         for label_id, info in label_names_snapshot.items():
             name_lower = info['original_name'].lower()
             if name_lower not in self.marked_today:
-                success = database.mark_attendance(info['original_name'], info.get('roll', ''))
+                person_id = info.get('id')
+                success = database.mark_attendance(
+                    info['original_name'], 
+                    info.get('roll', ''),
+                    person_id=person_id
+                )
                 if success:
                     self.marked_today.add(name_lower)
                     marked.append(info['original_name'])
-                    logger.info(f"Attendance marked (auto): {info['original_name']}")
+                    logger.info(f"Attendance marked (auto): {info['original_name']} (ID: {person_id})")
         return marked
     
     def _check_midnight_reset(self):
@@ -307,6 +312,13 @@ class AttendanceEngine:
             label_names_snapshot = dict(self.label_names)
         
         for (x, y, w, h) in faces:
+            face_key = self._generate_face_key(x, y, w, h)
+            
+            if face_key in self.last_seen and current_time - self.last_seen[face_key].get('time', 0) < 2:
+                continue
+            
+            self.last_seen[face_key] = {'time': current_time}
+            
             face_roi = gray[y:y+h, x:x+w]
             face_resized = cv2.resize(face_roi, tuple(image_size))
             
@@ -330,14 +342,15 @@ class AttendanceEngine:
                         name = face_info['original_name']
                         role = face_info['role']
                         roll = face_info.get('roll', '')
+                        person_id = face_info.get('id')
                         
                         label_text = f"{name} ({roll or role})"
                         color = (0, 200, 0) if role == 'student' else (200, 150, 0)
                         
                         if self.mode == "attendance":
-                            self._mark_attendance(name, role, roll, lbph_confidence)
+                            self._mark_attendance(name, role, roll, lbph_confidence, person_id)
                         elif self.mode == "monitoring":
-                            self._log_movement(name, role)
+                            self._log_movement(name, role, person_id)
                     else:
                         label_text = "Unknown"
                         color = (100, 100, 100)
@@ -345,7 +358,6 @@ class AttendanceEngine:
                     label_text = "UNKNOWN"
                     color = (0, 0, 220)
                     
-                    face_key = self._generate_face_key(x, y, w, h)
                     with self.alert_lock:
                         should_alert = (
                             face_key not in self.last_alert_time or
@@ -366,12 +378,11 @@ class AttendanceEngine:
                 logger.debug(f"Error processing face: {e}")
     
     def _generate_face_key(self, x, y, w, h):
-        """Generate unique key for face to avoid collision."""
-        timestamp = int(time.time() * 1000)
-        hash_input = f"{x}_{y}_{w}_{h}_{timestamp}"
+        """Generate stable key for face position (without timestamp)."""
+        hash_input = f"{x//10}_{y//10}_{w//10}_{h//10}"
         return hashlib.md5(hash_input.encode()).hexdigest()[:12]
     
-    def _mark_attendance(self, name, role, roll, confidence=None):
+    def _mark_attendance(self, name, role, roll, confidence=None, person_id=None):
         """Mark attendance - thread safe."""
         self._check_midnight_reset()
         name_lower = name.lower()
@@ -379,11 +390,11 @@ class AttendanceEngine:
         if name_lower in self.marked_today:
             return
         
-        if database.mark_attendance(name, roll, confidence=confidence):
+        if database.mark_attendance(name, roll, confidence=confidence, person_id=person_id):
             self.marked_today.add(name_lower)
-            logger.info(f"Attendance marked: {name}")
+            logger.info(f"Attendance marked: {name} (ID: {person_id})")
     
-    def _log_movement(self, name, role):
+    def _log_movement(self, name, role, person_id=None):
         """Log entry/exit movement - thread safe."""
         with self.movement_lock:
             current_time = time.time()
@@ -391,25 +402,27 @@ class AttendanceEngine:
             movement_gap = config.ATTENDANCE_CONFIG.get("movement_gap_seconds", 5)
             exit_gap = 30
             
-            if name_lower not in self.last_seen:
-                self.last_seen[name_lower] = {'time': current_time, 'event': 'entry'}
-                database.log_movement(name, role, 'entry')
-                logger.info(f"{name} entered")
+            key = f"mov_{name_lower}"
+            
+            if key not in self.last_seen:
+                self.last_seen[key] = {'time': current_time, 'event': 'entry'}
+                database.log_movement(name, role, 'entry', person_id=person_id)
+                logger.info(f"{name} entered (ID: {person_id})")
             else:
-                last = self.last_seen[name_lower]
+                last = self.last_seen[key]
                 time_diff = current_time - last['time']
                 
                 if time_diff > exit_gap:
                     if last['event'] == 'exit':
-                        self.last_seen[name_lower] = {'time': current_time, 'event': 'entry'}
-                        database.log_movement(name, role, 'entry')
-                        logger.info(f"{name} entered")
+                        self.last_seen[key] = {'time': current_time, 'event': 'entry'}
+                        database.log_movement(name, role, 'entry', person_id=person_id)
+                        logger.info(f"{name} entered (ID: {person_id})")
                     elif last['event'] == 'entry':
-                        self.last_seen[name_lower] = {'time': current_time, 'event': 'exit'}
-                        database.log_movement(name, role, 'exit')
-                        logger.info(f"{name} exited")
+                        self.last_seen[key] = {'time': current_time, 'event': 'exit'}
+                        database.log_movement(name, role, 'exit', person_id=person_id)
+                        logger.info(f"{name} exited (ID: {person_id})")
                 elif time_diff > movement_gap:
-                    self.last_seen[name_lower] = {'time': current_time, 'event': 'entry'}
+                    self.last_seen[key] = {'time': current_time, 'event': 'entry'}
     
     def _handle_unknown(self, frame, x, y, w, h):
         """Handle unknown person."""

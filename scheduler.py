@@ -98,13 +98,13 @@ def handle_batch_expiry():
         if not batch:
             return
         
-        batch_status = batch.get('status') if isinstance(batch, dict) else batch[4]
+        batch_status = batch.get('status', '')
         if not batch_status:
             return
         
         batch_progress = database.get_batch_progress()
         
-        if batch_progress and batch_progress['is_last_day']:
+        if batch_progress and batch_progress.get('is_last_day'):
             logger.warning("30-DAY BATCH EXPIRED!")
             
             engine = attendance_engine.get_engine()
@@ -125,9 +125,10 @@ def handle_batch_expiry():
             except Exception as e:
                 logger.exception(f"Error sending renewal reminder: {e}")
             
-            batch_id = batch.get('id') if isinstance(batch, dict) else batch[0]
-            database.close_batch(batch_id)
-            logger.info("Batch closed")
+            batch_id = batch.get('id')
+            if batch_id:
+                database.close_batch(batch_id)
+                logger.info(f"Batch {batch_id} closed")
     except Exception as e:
         logger.exception(f"Error handling batch expiry: {e}")
 
@@ -222,9 +223,9 @@ def init_scheduler():
         scheduler.start()
         logger.info("APScheduler started")
         logger.info(
-            f"Schedule - Attendance: {config.SCHEDULE_CONFIG['attendance_start']}"
-            f"-{config.SCHEDULE_CONFIG['attendance_stop']}, "
-            f"Day ends: {config.SCHEDULE_CONFIG['day_end']}"
+            f"Schedule - Attendance: {config.SCHEDULE_CONFIG.get('attendance_start', '09:00')}"
+            f"-{config.SCHEDULE_CONFIG.get('attendance_stop', '09:30')}, "
+            f"Day ends: {config.SCHEDULE_CONFIG.get('day_end', '16:30')}"
         )
         
         return scheduler
