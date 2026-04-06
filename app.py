@@ -4,13 +4,10 @@ Optional Flask-based web interface for attendance management
 """
 
 from flask import Flask, render_template, jsonify, request, Response
-import threading
-import sqlite3
-import os
 import io
 import csv
 from datetime import date, datetime, timedelta
-from pathlib import Path
+from functools import wraps
 
 import config
 import database
@@ -21,78 +18,97 @@ logger = get_logger()
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
-
-attendance_sys = None
-camera_thread = None
-
-
-def get_db_connection():
-    """Get database connection"""
-    return sqlite3.connect(str(config.DB_PATH))
+app.config.update(
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+)
 
 
-def get_stats():
-    """Get dashboard statistics"""
-    return database.get_stats()
+def _sanitize_string(value, max_length=200):
+    """Sanitize string input."""
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:max_length]
+
+
+def _validate_mode(mode):
+    """Validate camera mode."""
+    return mode in ("attendance", "monitoring")
+
+
+def require_json(f):
+    """Decorator to require JSON content type."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not request.is_json:
+            return jsonify({"error": "JSON body required"}), 400
+        return f(*args, **kwargs)
+    return decorated
 
 
 @app.route("/")
 def index():
-    """Dashboard home page"""
-    stats = get_stats()
+    """Dashboard home page."""
+    stats = database.get_stats()
     return render_template("dashboard.html", stats=stats)
 
 
 @app.route("/api/v1/health")
 def api_health():
-    """Health check endpoint"""
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+    """Health check endpoint."""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "2.0"
+    })
 
 
 @app.route("/api/v1/stats")
 def api_stats():
-    """API endpoint for statistics"""
-    return jsonify(get_stats())
+    """API endpoint for statistics."""
+    return jsonify(database.get_stats())
 
 
 @app.route("/api/v1/attendance/today")
 def api_today_attendance():
-    """Get today's attendance records"""
-    today = date.today().isoformat()
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT name, roll_number, date, time_in, status
-        FROM attendance WHERE date=? ORDER BY time_in
-    """, (today,))
+    """Get today's attendance records."""
+    attendance = database.get_today_attendance()
     records = [
-        {"name": r[0], "roll": r[1], "date": r[2], "time": r[3], "status": r[4]}
-        for r in c.fetchall()
+        {
+            "name": _sanitize_string(r.get('name', '')),
+            "roll": _sanitize_string(r.get('roll_number', '')),
+            "date": r.get('date', ''),
+            "time": r.get('time_in', ''),
+            "status": r.get('status', '')
+        }
+        for r in attendance
     ]
-    conn.close()
     return jsonify({"data": records, "count": len(records)})
 
 
 @app.route("/api/v1/people")
 def api_people():
-    """Get all registered people"""
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT id, name, role, roll_number, class_name, registered_at
-        FROM people WHERE active=1 ORDER BY role, name
-    """)
-    people = [
-        {"id": r[0], "name": r[1], "role": r[2], "roll": r[3], "class": r[4], "registered": r[5]}
-        for r in c.fetchall()
+    """Get all registered people."""
+    people = database.get_active_people()
+    records = [
+        {
+            "id": p.get('id'),
+            "name": _sanitize_string(p.get('name', '')),
+            "role": p.get('role', ''),
+            "roll": _sanitize_string(p.get('roll_number', '')),
+            "class": _sanitize_string(p.get('class_name', '')),
+            "registered": p.get('registered_at', '')
+        }
+        for p in people
     ]
-    conn.close()
-    return jsonify({"data": people, "count": len(people)})
+    return jsonify({"data": records, "count": len(records)})
 
 
 @app.route("/api/v1/camera/start", methods=["POST"])
+@require_json
 def start_camera():
-    """Start camera in background thread"""
+    """Start camera in background thread."""
     from attendance_engine import get_engine
     
     engine = get_engine()
@@ -100,29 +116,31 @@ def start_camera():
     if engine.running:
         return jsonify({"status": "already_running"})
     
-    mode = request.json.get("mode", "attendance")
-    demo_mode = request.json.get("demo", False)
-    headless = request.json.get("headless", False)
+    data = request.json
+    raw_mode = data.get("mode", "attendance")
+    mode = _sanitize_string(raw_mode, 20)
     
-    if headless:
-        engine.start_camera(mode=mode, demo_mode=True)
-        engine.demo_mode = "headless"
-    elif demo_mode:
-        engine.start_camera(mode=mode, demo_mode=True)
-    else:
-        engine.start_camera(mode=mode, demo_mode=False)
+    if not _validate_mode(mode):
+        mode = "attendance"
+    
+    demo_mode = bool(data.get("demo", False))
+    headless = bool(data.get("headless", False))
+    
+    engine.start_camera(mode=mode, demo_mode=demo_mode, headless=headless)
+    
+    status = engine.get_status()
     
     return jsonify({
-        "status": "started", 
-        "mode": mode, 
-        "demo": engine.demo_mode == True,
-        "headless": engine.demo_mode == "headless"
+        "status": "started",
+        "mode": status.get('mode', mode),
+        "demo": status.get('demo_mode', False),
+        "headless": status.get('headless', False)
     })
 
 
 @app.route("/api/v1/camera/stop", methods=["POST"])
 def stop_camera():
-    """Stop camera"""
+    """Stop camera."""
     from attendance_engine import get_engine
     
     engine = get_engine()
@@ -131,52 +149,71 @@ def stop_camera():
     return jsonify({"status": "stopped"})
 
 
+@app.route("/api/v1/camera/status")
+def camera_status():
+    """Get camera status."""
+    from attendance_engine import get_engine
+    engine = get_engine()
+    return jsonify(engine.get_status())
+
+
 @app.route("/api/v1/reports/export")
 def export_report():
-    """Export attendance to CSV"""
+    """Export attendance to CSV."""
     start = request.args.get("start", (date.today() - timedelta(days=7)).isoformat())
     end = request.args.get("end", date.today().isoformat())
     
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT name, role, class_name, date, time_in, status
-        FROM attendance WHERE date BETWEEN ? AND ? ORDER BY date, time_in
-    """, (start, end))
-    records = c.fetchall()
-    conn.close()
+    if len(start) != 10 or len(end) != 10:
+        return jsonify({"error": "Invalid date format (use YYYY-MM-DD)"}), 400
+    
+    attendance = database.get_attendance_by_date_range(start, end)
     
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Name", "Role", "Class", "Date", "Time", "Status"])
-    writer.writerows(records)
+    writer.writerow(["Name", "Roll Number", "Date", "Time In", "Status"])
+    
+    for r in attendance:
+        writer.writerow([
+            r.get('name', ''),
+            r.get('roll_number', ''),
+            r.get('date', ''),
+            r.get('time_in', ''),
+            r.get('status', '')
+        ])
+    
+    safe_start = start.replace('-', '')
+    safe_end = end.replace('-', '')
+    filename = f"attendance_{safe_start}_to_{safe_end}.csv"
     
     return Response(
         output.getvalue(),
         mimetype="text/csv",
-        headers={"Content-Disposition": f"attachment;filename=attendance_{start}_to_{end}.csv"}
+        headers={
+            "Content-Disposition": f"attachment;filename={filename}",
+            "X-Content-Type-Options": "nosniff"
+        }
     )
 
 
 @app.route("/api/v1/email/test", methods=["POST"])
 def api_test_email():
-    """Test email configuration"""
+    """Test email configuration."""
     success = email_sender.test_email()
-    return jsonify({"success": success})
+    return jsonify({"success": success, "message": "Email sent" if success else "Email failed"})
 
 
 @app.route("/api/v1/email/send-report", methods=["POST"])
 def api_send_report():
-    """Send daily report"""
+    """Send daily report."""
     import pdf_generator
     pdf_path = pdf_generator.generate_daily_report()
     email_sender.send_daily_report(None, pdf_path)
-    return jsonify({"success": True})
+    return jsonify({"success": True, "message": "Report queued for sending"})
 
 
 @app.route("/api/v1/settings", methods=["GET"])
 def api_get_settings():
-    """Get email settings"""
+    """Get settings (without passwords)."""
     settings = {
         "sender_email": config.EMAIL_CONFIG.get("sender_email", ""),
         "advisor_email": config.EMAIL_CONFIG.get("class_advisor_email", ""),
@@ -188,30 +225,29 @@ def api_get_settings():
 
 
 @app.route("/api/v1/settings", methods=["POST"])
+@require_json
 def api_save_settings():
-    """Save email settings"""
+    """Save settings to database."""
     data = request.json
     
-    config.EMAIL_CONFIG["sender_email"] = data.get("sender_email", "")
-    config.EMAIL_CONFIG["sender_password"] = data.get("sender_password", "")
-    config.EMAIL_CONFIG["class_advisor_email"] = data.get("advisor_email", "")
-    config.EMAIL_CONFIG["hod_email"] = data.get("hod_email", "")
-    config.EMAIL_CONFIG["enabled"] = data.get("enabled", False)
-    config.ATTENDANCE_CONFIG["class_name"] = data.get("class_name", "")
+    sender_email = _sanitize_string(data.get("sender_email", ""), 100)
+    advisor_email = _sanitize_string(data.get("advisor_email", ""), 100)
+    hod_email = _sanitize_string(data.get("hod_email", ""), 100)
+    class_name = _sanitize_string(data.get("class_name", ""), 50)
+    enabled = bool(data.get("enabled", False))
     
-    conn = get_db_connection()
-    c = conn.cursor()
     settings = [
-        ("smtp_user", data.get("sender_email", "")),
-        ("advisor_email", data.get("advisor_email", "")),
-        ("hod_email", data.get("hod_email", ""))
+        ("smtp_user", sender_email),
+        ("advisor_email", advisor_email),
+        ("hod_email", hod_email),
+        ("class_name", class_name),
+        ("email_enabled", "1" if enabled else "0")
     ]
-    for key, value in settings:
-        c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
-    conn.commit()
-    conn.close()
     
-    return jsonify({"success": True})
+    for key, value in settings:
+        database.set_setting(key, value)
+    
+    return jsonify({"success": True, "message": "Settings saved"})
 
 
 if __name__ == "__main__":
@@ -221,13 +257,15 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"   -> Dashboard: http://localhost:{config.FLASK_PORT}")
     print(f"   -> API: http://localhost:{config.FLASK_PORT}/api")
+    print(f"   -> Debug: {config.FLASK_DEBUG}")
     print("=" * 60 + "\n")
     
     database.init_database()
     
     app.run(
-        debug=True,
+        debug=config.FLASK_DEBUG,
         host=config.FLASK_HOST,
         port=config.FLASK_PORT,
-        use_reloader=False
+        use_reloader=False,
+        threaded=True
     )

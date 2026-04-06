@@ -288,14 +288,18 @@ def generate_monthly_report():
     summary_data = [['S.No', 'Name', 'Roll No', 'Days Present', 'Days Absent', 'Attendance %']]
     
     for i, person in enumerate(people, 1):
-        person_name = str(person[1])
-        person_roll = person[3] or '-'
+        if isinstance(person, dict):
+            person_name = str(person.get('name', ''))
+            person_roll = person.get('roll_number') or '-'
+        else:
+            person_name = str(person[1]) if len(person) > 1 else ''
+            person_roll = person[3] if len(person) > 3 else '-'
         
         present_dates = set()
         for r in attendance:
-            r_name = r.get('name', '') if isinstance(r, dict) else r[2]
+            r_name = r.get('name', '') if isinstance(r, dict) else (r[2] if len(r) > 2 else '')
             if r_name.lower() == person_name.lower():
-                r_date = r.get('date', '') if isinstance(r, dict) else r[4]
+                r_date = r.get('date', '') if isinstance(r, dict) else (r[4] if len(r) > 4 else '')
                 if r_date:
                     present_dates.add(r_date)
         

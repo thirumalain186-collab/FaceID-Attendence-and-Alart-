@@ -1,7 +1,6 @@
 """
 Attendance Engine for Smart Attendance System v2
 Face recognition, camera control, and attendance marking
-FIXED: Thread safety, case sensitivity, movement logging, face key collision
 """
 
 import cv2
@@ -21,7 +20,7 @@ logger = get_logger()
 
 
 class AttendanceEngine:
-    """Main attendance system with camera control"""
+    """Main attendance system with camera control."""
     
     def __init__(self):
         self.running = False
@@ -34,7 +33,7 @@ class AttendanceEngine:
         self.marked_today = set()
         self.last_seen = {}
         self.last_alert_time = {}
-        self.alert_cooldown = config.ATTENDANCE_CONFIG["unknown_alert_cooldown"]
+        self.alert_cooldown = config.ATTENDANCE_CONFIG.get("unknown_alert_cooldown", 60)
         
         self.mode = "idle"
         self.frame_count = 0
@@ -50,7 +49,7 @@ class AttendanceEngine:
         self.load_resources()
     
     def load_resources(self):
-        """Load cascade and model"""
+        """Load cascade and model."""
         if config.HAAR_CASCADE_PATH.exists():
             self.cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
             logger.info("Haar cascade loaded")
@@ -58,23 +57,34 @@ class AttendanceEngine:
             logger.error("Haar cascade not found")
         
         if config.TRAINER_FILE.exists():
-            self.recognizer = cv2.face.LBPHFaceRecognizer_create()
-            self.recognizer.read(str(config.TRAINER_FILE))
-            logger.info("LBPH model loaded")
+            try:
+                self.recognizer = cv2.face.LBPHFaceRecognizer_create()
+                self.recognizer.read(str(config.TRAINER_FILE))
+                logger.info("LBPH model loaded")
+            except Exception as e:
+                logger.error(f"Failed to load LBPH model: {e}")
+                self.recognizer = None
         else:
             logger.warning("Model not trained")
         
         self.reload_faces()
     
     def reload_faces(self):
-        """Reload face database - thread safe"""
+        """Reload face database - thread safe."""
         with self.face_lock:
             self.label_names = {}
             self.person_id_map = {}
             
             people = database.get_active_people()
             for person in people:
-                person_id, name, role, roll_number = person[0], person[1], person[2], person[3]
+                person_id = person.get('id')
+                name = person.get('name', '')
+                role = person.get('role', 'student')
+                roll_number = person.get('roll_number') or ''
+                
+                if not name:
+                    continue
+                
                 safe_name = name.replace(" ", "_").lower()
                 
                 for folder in config.DATASET_DIR.iterdir():
@@ -85,26 +95,30 @@ class AttendanceEngine:
                             'name': name.lower(),
                             'original_name': name,
                             'role': role.lower(),
-                            'roll': roll_number or ''
+                            'roll': roll_number
                         }
-                        self.person_id_map[person_id] = {
-                            'name': name.lower(),
-                            'original_name': name
-                        }
+                        if person_id:
+                            self.person_id_map[person_id] = {
+                                'name': name.lower(),
+                                'original_name': name
+                            }
                         break
             
             logger.info(f"Loaded {len(self.label_names)} registered people")
     
     def remove_person_safe(self, name):
-        """Remove person without stopping camera"""
+        """Remove person without stopping camera."""
         database.remove_person(name)
         self.reload_faces()
         
         safe_name = name.replace(" ", "_").lower()
         for folder in config.DATASET_DIR.iterdir():
             if folder.is_dir() and safe_name in folder.name.lower():
-                import shutil
-                shutil.rmtree(folder, ignore_errors=True)
+                try:
+                    import shutil
+                    shutil.rmtree(folder, ignore_errors=True)
+                except Exception as e:
+                    logger.warning(f"Could not remove folder: {e}")
                 break
         
         logger.info(f"Removed {name} from system")
@@ -128,7 +142,7 @@ class AttendanceEngine:
         self.demo_timer = 0
         
         if not self._is_demo_mode:
-            self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
+            self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG.get("camera_index", 0))
             
             if not self.camera.isOpened():
                 logger.error("Cannot open camera - starting in demo mode")
@@ -145,13 +159,18 @@ class AttendanceEngine:
         thread.start()
     
     def stop_camera(self):
-        """Stop camera"""
+        """Stop camera."""
         self.running = False
         self.mode = "idle"
         
         if self.camera:
             self.camera.release()
             self.camera = None
+        
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
         
         logger.info("Camera stopped")
     
@@ -172,18 +191,18 @@ class AttendanceEngine:
             
             self.frame_count += 1
             
-            if self.frame_count % config.ATTENDANCE_CONFIG["frame_skip"] != 0:
+            frame_skip = config.ATTENDANCE_CONFIG.get("frame_skip", 3)
+            if self.frame_count % frame_skip != 0:
                 self._show_frame_safe(frame)
                 continue
             
             self._process_frame(frame)
             self._show_frame_safe(frame)
             
-            if not self._is_headless:
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    self.stop_camera()
-                    break
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                self.stop_camera()
+                break
     
     def _headless_loop(self):
         """Headless mode - no display, for server environments."""
@@ -211,6 +230,7 @@ class AttendanceEngine:
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             cv2.putText(frame, datetime.now().strftime("%d %b %Y %H:%M:%S"), (200, 270),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+            
             with self.face_lock:
                 label_count = len(self.label_names)
             cv2.putText(frame, f"Registered: {label_count} | Marked: {len(self.marked_today)}", (170, 310),
@@ -221,9 +241,9 @@ class AttendanceEngine:
             
             if self.mode == "attendance" and self.demo_timer % 60 == 0 and label_count > 0:
                 marked = self._auto_mark_attendance()
-                for name in marked:
-                    cv2.putText(frame, f"[AUTO] Marked: {name}", (200, 400),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                for i, name in enumerate(marked[:5]):
+                    cv2.putText(frame, f"[AUTO] Marked: {name}", (150, 380 + i * 25),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             
             self._show_frame_safe(frame)
             time.sleep(0.033)
@@ -244,7 +264,7 @@ class AttendanceEngine:
         for label_id, info in label_names_snapshot.items():
             name_lower = info['original_name'].lower()
             if name_lower not in self.marked_today:
-                success = database.mark_attendance(info['original_name'], info['roll'])
+                success = database.mark_attendance(info['original_name'], info.get('roll', ''))
                 if success:
                     self.marked_today.add(name_lower)
                     marked.append(info['original_name'])
@@ -263,13 +283,22 @@ class AttendanceEngine:
     
     def _process_frame(self, frame):
         """Process single frame with thread safety."""
+        if self.cascade is None:
+            return
+        
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        scale_factor = config.ATTENDANCE_CONFIG.get("scale_factor", 1.3)
+        min_neighbors = config.ATTENDANCE_CONFIG.get("min_neighbors", 5)
+        min_face_size = config.ATTENDANCE_CONFIG.get("min_face_size", (30, 30))
+        image_size = config.ATTENDANCE_CONFIG.get("image_size", (200, 200))
+        confidence_threshold = config.ATTENDANCE_CONFIG.get("confidence_threshold", 80)
         
         faces = self.cascade.detectMultiScale(
             gray,
-            scaleFactor=config.ATTENDANCE_CONFIG["scale_factor"],
-            minNeighbors=config.ATTENDANCE_CONFIG["min_neighbors"],
-            minSize=tuple(config.ATTENDANCE_CONFIG["min_face_size"])
+            scaleFactor=scale_factor,
+            minNeighbors=min_neighbors,
+            minSize=tuple(min_face_size)
         )
         
         current_time = time.time()
@@ -279,23 +308,28 @@ class AttendanceEngine:
         
         for (x, y, w, h) in faces:
             face_roi = gray[y:y+h, x:x+w]
-            face_resized = cv2.resize(face_roi, tuple(config.ATTENDANCE_CONFIG["image_size"]))
+            face_resized = cv2.resize(face_roi, tuple(image_size))
             
             try:
                 if self.recognizer is None:
+                    label_text = "Model not loaded"
+                    color = (100, 100, 100)
+                    cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+                    cv2.putText(frame, label_text[:20], (x+4, y+h+15),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
                     continue
                 
                 label, confidence = self.recognizer.predict(face_resized)
                 
                 lbph_confidence = max(0, 100 - confidence)
                 
-                if confidence < config.ATTENDANCE_CONFIG["confidence_threshold"]:
+                if confidence < confidence_threshold:
                     face_info = label_names_snapshot.get(label, {})
                     
                     if face_info:
                         name = face_info['original_name']
                         role = face_info['role']
-                        roll = face_info['roll']
+                        roll = face_info.get('roll', '')
                         
                         label_text = f"{name} ({roll or role})"
                         color = (0, 200, 0) if role == 'student' else (200, 150, 0)
@@ -329,10 +363,10 @@ class AttendanceEngine:
                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
                 
             except Exception as e:
-                logger.exception(f"Error processing frame: {e}")
+                logger.debug(f"Error processing face: {e}")
     
     def _generate_face_key(self, x, y, w, h):
-        """Generate unique key for face to avoid collision"""
+        """Generate unique key for face to avoid collision."""
         timestamp = int(time.time() * 1000)
         hash_input = f"{x}_{y}_{w}_{h}_{timestamp}"
         return hashlib.md5(hash_input.encode()).hexdigest()[:12]
@@ -350,10 +384,12 @@ class AttendanceEngine:
             logger.info(f"Attendance marked: {name}")
     
     def _log_movement(self, name, role):
-        """Log entry/exit movement - thread safe"""
+        """Log entry/exit movement - thread safe."""
         with self.movement_lock:
             current_time = time.time()
             name_lower = name.lower()
+            movement_gap = config.ATTENDANCE_CONFIG.get("movement_gap_seconds", 5)
+            exit_gap = 30
             
             if name_lower not in self.last_seen:
                 self.last_seen[name_lower] = {'time': current_time, 'event': 'entry'}
@@ -363,7 +399,7 @@ class AttendanceEngine:
                 last = self.last_seen[name_lower]
                 time_diff = current_time - last['time']
                 
-                if time_diff > 30:
+                if time_diff > exit_gap:
                     if last['event'] == 'exit':
                         self.last_seen[name_lower] = {'time': current_time, 'event': 'entry'}
                         database.log_movement(name, role, 'entry')
@@ -372,9 +408,11 @@ class AttendanceEngine:
                         self.last_seen[name_lower] = {'time': current_time, 'event': 'exit'}
                         database.log_movement(name, role, 'exit')
                         logger.info(f"{name} exited")
+                elif time_diff > movement_gap:
+                    self.last_seen[name_lower] = {'time': current_time, 'event': 'entry'}
     
     def _handle_unknown(self, frame, x, y, w, h):
-        """Handle unknown person"""
+        """Handle unknown person."""
         logger.warning("Unknown person detected!")
         
         timestamp = datetime.now()
@@ -387,29 +425,39 @@ class AttendanceEngine:
         face_image = frame[top:bottom, left:right]
         img_filename = f"unknown_{timestamp.strftime('%Y%m%d_%H%M%S')}.jpg"
         img_path = config.UNKNOWN_DIR / img_filename
-        cv2.imwrite(str(img_path), face_image, [cv2.IMWRITE_JPEG_QUALITY, 100])
         
         try:
-            pdf_path = pdf_generator.generate_alert_pdf(str(img_path))
+            cv2.imwrite(str(img_path), face_image, [cv2.IMWRITE_JPEG_QUALITY, 100])
+            
+            pdf_path = None
+            try:
+                pdf_path = pdf_generator.generate_alert_pdf(str(img_path))
+            except Exception as e:
+                logger.warning(f"Failed to generate alert PDF: {e}")
+            
             email_sender.send_unknown_alert(str(img_path), pdf_path)
         except Exception as e:
-            logger.error(f"Failed to send unknown alert: {e}")
+            logger.error(f"Failed to handle unknown person: {e}")
     
     def _show_frame_safe(self, frame):
-        """Display frame with error handling"""
+        """Display frame with error handling."""
         mode_color = (0, 255, 0) if self.mode == "attendance" else (255, 165, 0)
         
         cv2.putText(frame, f"MODE: {self.mode.upper()}", (10, 25),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, mode_color, 2)
         cv2.putText(frame, datetime.now().strftime("%d %b %Y %H:%M:%S"),
                    (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
-        cv2.putText(frame, f"Registered: {len(self.label_names)} | Marked: {len(self.marked_today)}",
+        
+        with self.face_lock:
+            label_count = len(self.label_names)
+        cv2.putText(frame, f"Registered: {label_count} | Marked: {len(self.marked_today)}",
                    (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200,200,200), 1)
         
         try:
-            cv2.imshow("Smart Attendance System", frame)
+            if not self._is_headless:
+                cv2.imshow("Smart Attendance System", frame)
         except Exception as e:
-            logger.debug(f"Cannot display frame (headless mode): {e}")
+            logger.debug(f"Cannot display frame: {e}")
     
     def get_status(self):
         """Get status."""
@@ -427,9 +475,14 @@ class AttendanceEngine:
 
 
 _engine = None
+_engine_lock = threading.Lock()
+
 
 def get_engine():
+    """Get the global engine instance, thread-safe."""
     global _engine
     if _engine is None:
-        _engine = AttendanceEngine()
+        with _engine_lock:
+            if _engine is None:
+                _engine = AttendanceEngine()
     return _engine

@@ -42,10 +42,13 @@ def register_person_webcam():
     
     people = database.get_active_people()
     for p in people:
-        if p[1].lower() == name.lower():
+        p_name = p.get('name', '')
+        p_roll = p.get('roll_number') or ''
+        
+        if p_name.lower() == name.lower():
             logger.error(f"Name '{name}' already registered")
             return False
-        if p[3] and p[3].lower() == roll.lower():
+        if p_roll.lower() == roll.lower():
             logger.error(f"Roll number {roll} already registered")
             return False
     
@@ -58,7 +61,7 @@ def register_person_webcam():
     
     camera = None
     try:
-        camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG["camera_index"])
+        camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG.get("camera_index", 0))
         if not camera.isOpened():
             logger.error("Cannot access camera")
             return False
@@ -71,11 +74,16 @@ def register_person_webcam():
         person_dir.mkdir(exist_ok=True)
         
         person_id = database.add_person(name, role, roll)
+        if person_id is None:
+            logger.error("Failed to add person to database")
+            return False
+        
         logger.info(f"Added to database (ID: {person_id})")
         
         count = 0
-        target = config.ATTENDANCE_CONFIG["samples_per_person"]
+        target = config.ATTENDANCE_CONFIG.get("samples_per_person", 30)
         min_required = 5
+        image_size = tuple(config.ATTENDANCE_CONFIG.get("image_size", (200, 200)))
         
         logger.info(f"Capturing {target} face images (minimum {min_required})")
         print(f"\nPress SPACE to capture, Q to quit (minimum {min_required} images required)\n")
@@ -113,7 +121,7 @@ def register_person_webcam():
             elif key == ord(' ') and len(faces) == 1:
                 x, y, w, h = faces[0]
                 face = gray[y:y+h, x:x+w]
-                face = cv2.resize(face, tuple(config.ATTENDANCE_CONFIG["image_size"]))
+                face = cv2.resize(face, image_size)
                 
                 filename = f"{folder_name}_{count}.jpg"
                 success = cv2.imwrite(str(person_dir / filename), face)
@@ -158,9 +166,9 @@ def list_people():
     print("-"*60)
     
     for p in people:
-        name = str(p[1])[:24]
-        roll = p[3] or '-'
-        role = p[2]
+        name = str(p.get('name', ''))[:24]
+        roll = p.get('roll_number') or '-'
+        role = p.get('role', '')
         print(f"{name:<25} {roll:<15} {role:<10}")
     
     print("-"*60)

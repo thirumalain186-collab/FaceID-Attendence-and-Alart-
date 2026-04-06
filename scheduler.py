@@ -133,26 +133,31 @@ def handle_batch_expiry():
 
 
 def generate_csv_report():
-    """Generate CSV report for today."""
+    """Generate CSV report for today. Returns path or None on error."""
     import csv
     
-    today = date.today()
-    attendance = database.get_today_attendance()
-    
-    csv_path = config.REPORTS_DIR / f"attendance_{today.strftime('%Y%m%d')}.csv"
-    csv_path.parent.mkdir(exist_ok=True)
-    
-    with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['S.No', 'Name', 'Roll No', 'Date', 'Time In', 'Status'])
+    try:
+        today = date.today()
+        attendance = database.get_today_attendance()
         
-        for i, record in enumerate(attendance, 1):
-            name = record.get('name', '-')
-            roll = record.get('roll_number') or '-'
-            time_in = record.get('time_in', '-')
-            writer.writerow([i, name, roll, today.strftime('%Y-%m-%d'), time_in, 'Present'])
-    
-    return str(csv_path)
+        csv_path = config.REPORTS_DIR / f"attendance_{today.strftime('%Y%m%d')}.csv"
+        csv_path.parent.mkdir(exist_ok=True)
+        
+        with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['S.No', 'Name', 'Roll No', 'Date', 'Time In', 'Status'])
+            
+            for i, record in enumerate(attendance, 1):
+                name = record.get('name', '-') if isinstance(record, dict) else '-'
+                roll = record.get('roll_number') if isinstance(record, dict) else '-'
+                time_in = record.get('time_in', '-') if isinstance(record, dict) else '-'
+                writer.writerow([i, name, roll, today.strftime('%Y-%m-%d'), time_in, 'Present'])
+        
+        logger.info(f"CSV report generated: {csv_path}")
+        return str(csv_path)
+    except Exception as e:
+        logger.exception(f"Failed to generate CSV report: {e}")
+        return None
 
 
 def init_scheduler():
@@ -166,12 +171,18 @@ def init_scheduler():
         
         scheduler = BackgroundScheduler()
         
-        attendance_start_hour, attendance_start_min = map(
-            int, config.SCHEDULE_CONFIG["attendance_start"].split(':'))
-        attendance_stop_hour, attendance_stop_min = map(
-            int, config.SCHEDULE_CONFIG["attendance_stop"].split(':'))
-        day_end_hour, day_end_min = map(
-            int, config.SCHEDULE_CONFIG["day_end"].split(':'))
+        try:
+            attendance_start_hour, attendance_start_min = map(
+                int, config.SCHEDULE_CONFIG.get("attendance_start", "09:00").split(':'))
+            attendance_stop_hour, attendance_stop_min = map(
+                int, config.SCHEDULE_CONFIG.get("attendance_stop", "09:30").split(':'))
+            day_end_hour, day_end_min = map(
+                int, config.SCHEDULE_CONFIG.get("day_end", "16:30").split(':'))
+        except (ValueError, KeyError, AttributeError) as e:
+            logger.error(f"Invalid schedule config, using defaults: {e}")
+            attendance_start_hour, attendance_start_min = 9, 0
+            attendance_stop_hour, attendance_stop_min = 9, 30
+            day_end_hour, day_end_min = 16, 30
         
         scheduler.add_job(
             start_attendance_mode,

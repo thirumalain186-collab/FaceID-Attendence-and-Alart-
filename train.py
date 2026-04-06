@@ -76,7 +76,14 @@ def train_model():
     people = database.get_active_people()
     person_map = {}
     for p in people:
-        person_id, name, role, roll = p[0], p[1], p[2], p[3] or ""
+        person_id = p.get('id')
+        name = p.get('name', '')
+        role = p.get('role', 'student')
+        roll = p.get('roll_number') or ''
+        
+        if not name:
+            continue
+        
         safe_name = name.replace(" ", "_").lower()
         person_map[safe_name] = {
             'id': person_id,
@@ -85,7 +92,7 @@ def train_model():
             'roll': roll
         }
     
-    target_size = tuple(config.ATTENDANCE_CONFIG["image_size"])
+    target_size = tuple(config.ATTENDANCE_CONFIG.get("image_size", (200, 200)))
     threshold = float(config.ATTENDANCE_CONFIG.get("confidence_threshold", 100))
     
     label_id = 0
