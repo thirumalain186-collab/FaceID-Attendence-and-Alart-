@@ -11,20 +11,25 @@
         .header h1 { font-size: 24px; }
         .header a { color: white; text-decoration: none; padding: 10px 20px; background: rgba(255,255,255,0.2); border-radius: 5px; }
         .header a:hover { background: rgba(255,255,255,0.3); }
-        .container { max-width: 800px; margin: 30px auto; padding: 0 20px; }
+        .container { max-width: 900px; margin: 30px auto; padding: 0 20px; }
         .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .card h2 { color: #1a237e; margin-bottom: 20px; }
         .form-group { margin-bottom: 20px; }
         .form-group label { display: block; margin-bottom: 5px; color: #333; font-weight: 600; }
         .form-group input, .form-group select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: #1a237e; }
         .btn { padding: 15px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-right: 10px; }
         .btn-primary { background: #1a237e; color: white; }
         .btn-success { background: #4caf50; color: white; }
+        .btn-danger { background: #f44336; color: white; }
+        .btn-warning { background: #ff9800; color: white; }
         .btn:hover { opacity: 0.9; }
-        .preview-area { border: 2px dashed #ddd; padding: 20px; text-align: center; min-height: 150px; border-radius: 8px; margin-bottom: 20px; }
-        .preview-area img { max-width: 150px; max-height: 150px; margin: 5px; border-radius: 5px; }
-        .preview-area p { color: #666; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .camera-area { text-align: center; margin: 20px 0; }
+        #video { border: 3px solid #1a237e; border-radius: 8px; width: 320px; height: 240px; background: #000; }
+        #canvas { display: none; }
+        .preview-area { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 20px 0; }
+        .preview-area img { width: 80px; height: 80px; object-fit: cover; border-radius: 5px; border: 2px solid #ddd; }
+        .preview-area .captured-count { width: 80px; height: 80px; border: 2px dashed #1a237e; border-radius: 5px; display: flex; align-items: center; justify-content: center; color: #1a237e; font-weight: bold; }
         .message { padding: 15px; border-radius: 5px; margin-bottom: 20px; }
         .message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
@@ -33,9 +38,10 @@
         .instructions h3 { margin-bottom: 10px; color: #856404; }
         .instructions ul { margin-left: 20px; color: #856404; }
         .instructions li { margin-bottom: 5px; }
-        .image-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-        .image-grid .img-thumb { width: 80px; height: 80px; object-fit: cover; border-radius: 5px; }
-        .count { font-size: 14px; color: #666; margin-top: 5px; }
+        .count-display { text-align: center; font-size: 24px; color: #1a237e; margin: 10px 0; }
+        .count-display span { font-weight: bold; }
+        .row { display: flex; gap: 20px; }
+        .row .card { flex: 1; }
     </style>
 </head>
 <body>
@@ -49,113 +55,151 @@
             <h3>📋 Instructions</h3>
             <ul>
                 <li>Enter the person's details (Name, Roll Number, Role)</li>
-                <li>Upload at least <strong>10 face images</strong> (more = better accuracy)</li>
-                <li>Images should be clear, front-facing, with good lighting</li>
-                <li>Different expressions/angles help improve recognition</li>
-                <li>After registration, the model will auto-train</li>
+                <li>Click <strong>"Start Camera"</strong> to begin capturing</li>
+                <li>Look at the camera and click <strong>"Capture Photo"</strong> - need at least 10 photos</li>
+                <li>Vary your expression slightly between captures for better accuracy</li>
+                <li>Click <strong>"Register & Train"</strong> when ready</li>
             </ul>
         </div>
         
         <div id="message"></div>
         
-        <div class="card">
-            <h2>Person Details</h2>
-            <form id="registerForm">
-                <div class="form-group">
-                    <label for="name">Name *</label>
-                    <input type="text" id="name" name="name" required placeholder="Enter full name">
-                </div>
-                
-                <div class="form-group">
-                    <label for="roll">Roll Number / ID *</label>
-                    <input type="text" id="roll" name="roll" required placeholder="Enter roll number or ID">
-                </div>
-                
-                <div class="form-group">
-                    <label for="role">Role *</label>
-                    <select id="role" name="role" required>
-                        <option value="student">Student</option>
-                        <option value="teacher">Teacher</option>
-                    </select>
-                </div>
-                
-                <div class="form-group">
-                    <label for="email">Email (Optional)</label>
-                    <input type="email" id="email" name="email" placeholder="Enter email address">
-                </div>
-            </form>
-        </div>
-        
-        <div class="card" style="margin-top: 20px;">
-            <h2>Upload Face Images</h2>
-            <div class="preview-area" id="dropZone">
-                <p>Drag & drop images here or click to select</p>
-                <input type="file" id="fileInput" multiple accept="image/*" style="display: none;">
-                <div class="image-grid" id="imagePreview"></div>
-                <p class="count" id="imageCount">0 images selected</p>
+        <div class="row">
+            <div class="card">
+                <h2>Person Details</h2>
+                <form id="registerForm">
+                    <div class="form-group">
+                        <label for="name">Name *</label>
+                        <input type="text" id="name" name="name" required placeholder="Enter full name">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="roll">Roll Number / ID *</label>
+                        <input type="text" id="roll" name="roll" required placeholder="Enter roll number or ID">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="role">Role *</label>
+                        <select id="role" name="role" required>
+                            <option value="student">Student</option>
+                            <option value="teacher">Teacher</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="email">Email (Optional)</label>
+                        <input type="email" id="email" name="email" placeholder="Enter email address">
+                    </div>
+                </form>
             </div>
-            <p style="color: #666; font-size: 14px;">
-                <strong>Tip:</strong> Upload at least 10 clear face photos. You can select multiple images at once.
-            </p>
+            
+            <div class="card">
+                <h2>Capture Photos</h2>
+                <div class="camera-area">
+                    <video id="video" autoplay playsinline></video>
+                    <canvas id="canvas"></canvas>
+                </div>
+                
+                <div class="count-display">
+                    Captured: <span id="photoCount">0</span> / <span id="minPhotos">10</span>
+                </div>
+                
+                <div style="text-align: center;">
+                    <button type="button" class="btn btn-success" id="startBtn" onclick="startCamera()">Start Camera</button>
+                    <button type="button" class="btn btn-primary" id="captureBtn" onclick="capturePhoto()" disabled>Capture Photo</button>
+                    <button type="button" class="btn btn-danger" id="clearBtn" onclick="clearPhotos()" disabled>Clear All</button>
+                </div>
+                
+                <div class="preview-area" id="previewArea">
+                    <!-- Captured photos will appear here -->
+                </div>
+            </div>
         </div>
         
         <div style="margin-top: 20px; text-align: center;">
-            <button type="button" class="btn btn-primary" onclick="registerPerson()">Register & Train Model</button>
-            <button type="button" class="btn btn-success" onclick="location.href='/'">Back to Dashboard</button>
+            <button type="button" class="btn btn-success" id="registerBtn" onclick="registerPerson()" disabled>Register & Train Model</button>
+            <button type="button" class="btn btn-warning" onclick="location.href='/'">Cancel</button>
         </div>
     </div>
     
     <script>
-        let selectedFiles = [];
+        let stream = null;
+        let capturedPhotos = [];
         
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-        const preview = document.getElementById('imagePreview');
-        const imageCount = document.getElementById('imageCount');
-        
-        dropZone.addEventListener('click', () => fileInput.click());
-        
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.style.borderColor = '#1a237e';
-        });
-        
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.style.borderColor = '#ddd';
-        });
-        
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.style.borderColor = '#ddd';
-            handleFiles(e.dataTransfer.files);
-        });
-        
-        fileInput.addEventListener('change', (e) => {
-            handleFiles(e.target.files);
-        });
-        
-        function handleFiles(files) {
-            for (let file of files) {
-                if (file.type.startsWith('image/')) {
-                    selectedFiles.push(file);
-                }
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: 320, height: 240 }, 
+                    audio: false 
+                });
+                document.getElementById('video').srcObject = stream;
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('captureBtn').disabled = false;
+                document.getElementById('clearBtn').disabled = false;
+                showMessage('Camera started! Capture at least 10 photos.', 'info');
+            } catch (err) {
+                showMessage('Camera error: ' + err.message, 'error');
             }
+        }
+        
+        function capturePhoto() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            canvas.width = 200;
+            canvas.height = 200;
+            ctx.drawImage(video, 0, 0, 200, 200);
+            
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            capturedPhotos.push(dataUrl);
+            
             updatePreview();
+            
+            const minPhotos = parseInt(document.getElementById('minPhotos').textContent);
+            if (capturedPhotos.length >= minPhotos) {
+                document.getElementById('registerBtn').disabled = false;
+                showMessage(capturedPhotos.length + ' photos captured! Ready to register.', 'success');
+            }
         }
         
         function updatePreview() {
+            const preview = document.getElementById('previewArea');
+            const count = capturedPhotos.length;
+            document.getElementById('photoCount').textContent = count;
+            
             preview.innerHTML = '';
-            selectedFiles.forEach((file, index) => {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    const img = document.createElement('img');
-                    img.src = e.target.result;
-                    img.className = 'img-thumb';
-                    preview.appendChild(img);
-                };
-                reader.readAsDataURL(file);
+            capturedPhotos.forEach((photo, index) => {
+                const img = document.createElement('img');
+                img.src = photo;
+                preview.appendChild(img);
             });
-            imageCount.textContent = `${selectedFiles.length} images selected`;
+            
+            // Add count indicator if not full
+            const minPhotos = parseInt(document.getElementById('minPhotos').textContent);
+            if (count < minPhotos) {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'captured-count';
+                placeholder.textContent = count + '/' + minPhotos;
+                preview.appendChild(placeholder);
+            }
+        }
+        
+        function clearPhotos() {
+            capturedPhotos = [];
+            updatePreview();
+            document.getElementById('registerBtn').disabled = true;
+            showMessage('Photos cleared.', 'info');
+        }
+        
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+            document.getElementById('video').srcObject = null;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('captureBtn').disabled = true;
         }
         
         function showMessage(text, type) {
@@ -183,12 +227,13 @@
                 return;
             }
             
-            if (selectedFiles.length < 10) {
-                showMessage(`Please upload at least 10 images. Currently ${selectedFiles.length} selected.`, 'error');
+            if (capturedPhotos.length < 10) {
+                showMessage('Please capture at least 10 photos.', 'error');
                 return;
             }
             
-            showMessage('Registering person and uploading images...', 'info');
+            showMessage('Registering... Do not close this window.', 'info');
+            stopCamera();
             
             const formData = new FormData();
             formData.append('name', name);
@@ -196,8 +241,9 @@
             formData.append('role', role);
             if (email) formData.append('email', email);
             
-            selectedFiles.forEach((file, index) => {
-                formData.append('images', file);
+            capturedPhotos.forEach((photo, index) => {
+                const blob = dataURLtoBlob(photo);
+                formData.append('images', blob, `photo_${index}.jpg`);
             });
             
             try {
@@ -209,16 +255,13 @@
                 const data = await res.json();
                 
                 if (data.success) {
-                    showMessage(`Success! ${escapeHtml(data.name)} registered with ${data.image_count} images. Training model...`, 'success');
-                    selectedFiles = [];
-                    updatePreview();
-                    document.getElementById('registerForm').reset();
+                    showMessage(`Success! ${escapeHtml(data.name)} registered with ${data.image_count} photos. Training model...`, 'success');
+                    capturedPhotos = [];
                     
-                    if (data.training) {
-                        setTimeout(() => {
-                            showMessage('Model trained successfully! You can now use attendance.', 'success');
-                        }, 2000);
-                    }
+                    setTimeout(() => {
+                        alert('Registration complete! ' + data.name + ' can now use attendance.');
+                        window.location.href = '/';
+                    }, 3000);
                 } else {
                     showMessage('Error: ' + escapeHtml(data.error || 'Registration failed'), 'error');
                 }
@@ -226,6 +269,25 @@
                 showMessage('Error: ' + escapeHtml(e.message), 'error');
             }
         }
+        
+        function dataURLtoBlob(dataurl) {
+            const arr = dataurl.split(',');
+            const mime = arr[0].match(/:(.*?);/)[1];
+            const bstr = atob(arr[1]);
+            let n = bstr.length;
+            const u8arr = new Uint8Array(n);
+            while (n--) {
+                u8arr[n] = bstr.charCodeAt(n);
+            }
+            return new Blob([u8arr], { type: mime });
+        }
+        
+        // Stop camera when leaving page
+        window.addEventListener('beforeunload', () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        });
     </script>
 </body>
 </html>
