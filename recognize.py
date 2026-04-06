@@ -309,23 +309,18 @@ class AttendanceSystem:
 
 
 def show_attendance_records():
-    """
-    Display all attendance records from CSV file
+    """Display all attendance records from CSV file."""
+    if not os.path.exists(config.ATTENDANCE_FILE):
+        logger.info("No attendance records found")
+        return
     
-    Returns:
-        None
-    """
-        if not os.path.exists(config.ATTENDANCE_FILE):
-            logger.info("No attendance records found")
-            return
+    try:
+        with open(config.ATTENDANCE_FILE, 'r') as f:
+            lines = f.readlines()
         
-        try:
-            with open(config.ATTENDANCE_FILE, 'r') as f:
-                lines = f.readlines()
-            
-            if not lines:
-                logger.info("Attendance file is empty")
-                return
+        if not lines:
+            logger.info("Attendance file is empty")
+            return
         
         print("\n" + "=" * 80)
         print("                      ATTENDANCE RECORDS")

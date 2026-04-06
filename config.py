@@ -130,15 +130,15 @@ if EMAIL_CONFIG.get("hod_email") and "@" not in EMAIL_CONFIG["hod_email"]:
     EMAIL_CONFIG["hod_email"] = ""
 
 ATTENDANCE_CONFIG = {
-    "confidence_threshold": _validate_int(env_confidence, 80, 1, 100),
-    "unknown_alert_cooldown": _validate_int(env_cooldown, 60, 10, 3600),
+    "confidence_threshold": _validate_int(env_confidence, 65, 1, 100),
+    "unknown_alert_cooldown": _validate_int(env_cooldown, 30, 10, 3600),
     "frame_skip": _validate_int(env_frame_skip, 3, 1, 30),
     "camera_index": _validate_int(env_camera_idx, 0, 0, 9),
     "class_name": _sanitize_string(os.getenv("CLASS_NAME", "PTLE - Classroom"), 50),
     "college_name": _sanitize_string(os.getenv("COLLEGE_NAME", "PTLE College"), 100),
     "samples_per_person": _validate_int(env_samples, 30, 5, 100),
     "image_size": (200, 200),
-    "scale_factor": 1.3,
+    "scale_factor": 1.1,
     "min_neighbors": 5,
     "min_face_size": (30, 30),
     "face_tolerance": 0.5,
