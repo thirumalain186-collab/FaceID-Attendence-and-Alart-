@@ -1,6 +1,7 @@
 """
 Training Module for Smart Attendance System v2
 Train LBPH Face Recognizer
+FIXED: Robust folder parsing, proper database lookup
 """
 
 import cv2
@@ -34,36 +35,42 @@ def train_model():
     
     logger.info(f"Found {len(user_folders)} registered users")
     
+    people = database.get_active_people()
+    person_map = {}
+    for p in people:
+        person_id, name, role, roll = p[0], p[1], p[2], p[3] or ""
+        safe_name = name.replace(" ", "_").lower()
+        person_map[safe_name] = {
+            'id': person_id,
+            'name': name,
+            'role': role,
+            'roll': roll
+        }
+    
     label_id = 0
     
     for user_folder in sorted(user_folders):
         folder_name = user_folder.name
-        parts = folder_name.rsplit('_', 1)
         
-        if len(parts) != 2:
-            logger.warning(f"Invalid folder format: {folder_name}")
-            continue
+        matched_person = None
+        for safe_name, person_info in person_map.items():
+            if safe_name in folder_name.lower():
+                matched_person = person_info
+                break
         
-        person_name = parts[0].replace("_", " ").title()
-        role = parts[1]
-        roll = ""
-        
-        try:
-            people = database.get_active_people()
-            for p in people:
-                safe_db = p[1].replace(" ", "_").lower()
-                if safe_db in folder_name.lower():
-                    person_name = p[1]
-                    role = p[2]
-                    roll = p[3] or ""
-                    break
-        except:
-            pass
-        
-        if not roll:
-            name_parts = folder_name.replace("_", " ").split()
-            for part in name_parts:
-                if part.isdigit():
+        if matched_person:
+            person_name = matched_person['name']
+            role = matched_person['role']
+            roll = matched_person['roll']
+        else:
+            folder_safe = folder_name.replace("_", " ").replace("-", " ").strip()
+            name_candidates = [w.title() for w in folder_safe.split() if w.isalpha()]
+            person_name = " ".join(name_candidates) if name_candidates else folder_name
+            role = "student"
+            roll = ""
+            
+            for part in folder_name.replace("_", " ").split():
+                if part.isdigit() and len(part) >= 2:
                     roll = part
                     break
         
@@ -89,7 +96,7 @@ def train_model():
                 labels.append(label_id)
                 valid_count += 1
             except Exception as e:
-                logger.warning(f"Error loading image: {e}")
+                logger.warning(f"Error loading image {image_file}: {e}")
         
         if valid_count > 0:
             label_id += 1
@@ -103,7 +110,11 @@ def train_model():
     
     try:
         recognizer = cv2.face.LBPHFaceRecognizer_create(
-            radius=1, neighbors=8, grid_x=8, grid_y=8, threshold=100.0
+            radius=1, 
+            neighbors=8, 
+            grid_x=8, 
+            grid_y=8, 
+            threshold=float(config.ATTENDANCE_CONFIG.get("confidence_threshold", 100))
         )
         
         faces_array = np.array(faces, dtype='uint8')
@@ -128,4 +139,5 @@ def train_model():
 
 
 if __name__ == "__main__":
-    train_model()
+    success = train_model()
+    exit(0 if success else 1)

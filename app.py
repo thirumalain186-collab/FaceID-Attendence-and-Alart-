@@ -100,22 +100,23 @@ def start_camera():
     if engine.running:
         return jsonify({"status": "already_running"})
     
-    mode = request.json.get("mode", "attendance") if request.method == "POST" else "attendance"
+    mode = request.json.get("mode", "attendance")
     demo_mode = request.json.get("demo", False)
     headless = request.json.get("headless", False)
     
     if headless:
-        engine.start_camera(mode=mode, demo_mode="headless")
+        engine.start_camera(mode=mode, demo_mode=True)
+        engine.demo_mode = "headless"
+    elif demo_mode:
+        engine.start_camera(mode=mode, demo_mode=True)
     else:
-        engine.start_camera(mode=mode, demo_mode=demo_mode)
-    
-    demo_status = engine.demo_mode if hasattr(engine, 'demo_mode') else False
+        engine.start_camera(mode=mode, demo_mode=False)
     
     return jsonify({
         "status": "started", 
         "mode": mode, 
-        "demo": demo_status if demo_status else False,
-        "headless": demo_status == "headless"
+        "demo": engine.demo_mode == True,
+        "headless": engine.demo_mode == "headless"
     })
 
 

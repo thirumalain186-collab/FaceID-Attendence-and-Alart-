@@ -96,6 +96,13 @@
     </div>
     
     <script>
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+        
         async function loadAttendance() {
             try {
                 const res = await fetch('/api/v1/attendance/today');
@@ -104,7 +111,7 @@
                 if (data.data && data.data.length > 0) {
                     let html = '<table><tr><th>#</th><th>Name</th><th>Roll No</th><th>Time</th><th>Status</th></tr>';
                     data.data.forEach((item, i) => {
-                        html += `<tr><td>${i+1}</td><td>${item.name}</td><td>${item.roll || '-'}</td><td>${item.time}</td><td>${item.status}</td></tr>`;
+                        html += `<tr><td>${i+1}</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.roll) || '-'}</td><td>${escapeHtml(item.time)}</td><td>${escapeHtml(item.status)}</td></tr>`;
                     });
                     html += '</table>';
                     container.innerHTML = html;
@@ -122,7 +129,7 @@
                 if (data.data && data.data.length > 0) {
                     let html = '<table><tr><th>#</th><th>Name</th><th>Roll No</th><th>Role</th></tr>';
                     data.data.forEach((item, i) => {
-                        html += `<tr><td>${i+1}</td><td>${item.name}</td><td>${item.roll || '-'}</td><td>${item.role}</td></tr>`;
+                        html += `<tr><td>${i+1}</td><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.roll) || '-'}</td><td>${escapeHtml(item.role)}</td></tr>`;
                     });
                     html += '</table>';
                     container.innerHTML = html;
@@ -140,13 +147,13 @@
                     body: JSON.stringify({mode, demo, headless}) 
                 });
                 const data = await res.json();
-                document.getElementById('camera-status').textContent = data.mode.toUpperCase() + ' - ' + data.status;
+                document.getElementById('camera-status').textContent = escapeHtml(data.mode).toUpperCase() + ' - ' + escapeHtml(data.status);
                 document.getElementById('camera-status').className = 'status running';
                 let indicator = '';
                 if (data.headless) indicator = ' <span class="demo-badge" style="background:#9c27b0">HEADLESS</span>';
                 else if (data.demo) indicator = ' <span class="demo-badge">DEMO</span>';
                 document.getElementById('demo-indicator').innerHTML = indicator;
-                alert('Started: ' + data.mode + (data.headless ? ' (HEADLESS - no display)' : data.demo ? ' (DEMO)' : ''));
+                alert('Started: ' + escapeHtml(data.mode) + (data.headless ? ' (HEADLESS - no display)' : data.demo ? ' (DEMO)' : ''));
             } catch (e) { alert('Error starting camera'); }
         }
         

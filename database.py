@@ -4,6 +4,7 @@ All SQLite database operations
 """
 
 import sqlite3
+import threading
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import config
@@ -11,18 +12,38 @@ from logger import get_logger
 
 logger = get_logger()
 
+_thread_local = threading.local()
+
+
+def _open_conn(conn):
+    """Configure connection with proper settings."""
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
 
 def get_connection():
-    """Get database connection"""
-    return sqlite3.connect(str(config.DB_PATH))
+    """Get thread-local database connection."""
+    if not hasattr(_thread_local, 'conn') or _thread_local.conn is None:
+        conn = sqlite3.connect(
+            str(config.DB_PATH),
+            check_same_thread=False,
+            timeout=30.0,
+            isolation_level='DEFERRED',
+        )
+        _thread_local.conn = _open_conn(conn)
+    return _thread_local.conn
 
 
 def init_database():
-    """Initialize database with schema"""
-    conn = get_connection()
+    """Initialize database with schema."""
+    conn = sqlite3.connect(str(config.DB_PATH), timeout=30.0)
+    conn = _open_conn(conn)
     c = conn.cursor()
     
-    # Batches table
     c.execute("""
         CREATE TABLE IF NOT EXISTS batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,65 +54,63 @@ def init_database():
         )
     """)
     
-    # People table
     c.execute("""
         CREATE TABLE IF NOT EXISTS people (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            role TEXT NOT NULL,
-            roll_number TEXT,
+            name TEXT NOT NULL COLLATE NOCASE,
+            role TEXT NOT NULL CHECK(role IN ('student', 'teacher')),
+            roll_number TEXT COLLATE NOCASE,
             email TEXT,
             class_name TEXT,
             batch_id INTEGER,
-            active INTEGER DEFAULT 1,
+            active INTEGER DEFAULT 1 CHECK(active IN (0, 1)),
             registered_at TEXT,
-            FOREIGN KEY (batch_id) REFERENCES batches(id)
+            FOREIGN KEY (batch_id) REFERENCES batches(id),
+            UNIQUE(name, batch_id)
         )
     """)
     
-    # Attendance table
     c.execute("""
         CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             person_id INTEGER,
-            name TEXT,
-            roll_number TEXT,
-            date TEXT,
-            time_in TEXT,
-            status TEXT DEFAULT 'present',
+            name TEXT NOT NULL COLLATE NOCASE,
+            roll_number TEXT COLLATE NOCASE,
+            date TEXT NOT NULL,
+            time_in TEXT NOT NULL,
+            status TEXT DEFAULT 'present' CHECK(status IN ('present', 'absent', 'late')),
             batch_id INTEGER,
-            FOREIGN KEY (person_id) REFERENCES people(id)
+            confidence REAL,
+            FOREIGN KEY (person_id) REFERENCES people(id),
+            UNIQUE(person_id, date)
         )
     """)
     
-    # Movement log table
     c.execute("""
         CREATE TABLE IF NOT EXISTS movement_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             person_id INTEGER,
-            name TEXT,
+            name TEXT NOT NULL COLLATE NOCASE,
             role TEXT,
-            timestamp TEXT,
-            event_type TEXT,
+            timestamp TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(event_type IN ('entry', 'exit')),
             batch_id INTEGER,
             FOREIGN KEY (person_id) REFERENCES people(id)
         )
     """)
     
-    # Alerts table
     c.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
+            timestamp TEXT NOT NULL,
             image_path TEXT,
             pdf_path TEXT,
             location TEXT,
-            alert_sent INTEGER DEFAULT 0,
-            alert_id TEXT
+            alert_sent INTEGER DEFAULT 0 CHECK(alert_sent IN (0, 1)),
+            alert_id TEXT UNIQUE
         )
     """)
     
-    # Settings table
     c.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -99,19 +118,27 @@ def init_database():
         )
     """)
     
-    # Create indexes for performance
     c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_name ON attendance(name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_attendance_person_date ON attendance(person_id, date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_movement_timestamp ON movement_log(timestamp)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_movement_person ON movement_log(person_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_people_active ON people(active)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_people_batch ON people(batch_id)")
     
     conn.commit()
     conn.close()
-    logger.info("Database initialized with indexes")
+    logger.info("Database initialized with indexes and constraints")
 
 
-# ============ BATCH FUNCTIONS ============
+def _get_person_id_by_name(name):
+    """Get person ID by name (case-insensitive)"""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT id FROM people WHERE name=? COLLATE NOCASE AND active=1", (name,))
+    row = c.fetchone()
+    return row['id'] if row else None
+
 
 def create_batch():
     """Create a new batch with 30-day validity"""
@@ -128,7 +155,6 @@ def create_batch():
     
     batch_id = c.lastrowid
     conn.commit()
-    conn.close()
     
     return batch_id
 
@@ -139,8 +165,7 @@ def get_active_batch():
     c = conn.cursor()
     c.execute("SELECT * FROM batches WHERE status='active' ORDER BY id DESC LIMIT 1")
     batch = c.fetchone()
-    conn.close()
-    return batch
+    return dict(batch) if batch else None
 
 
 def get_batch_progress():
@@ -149,8 +174,8 @@ def get_batch_progress():
     if not batch:
         return None
     
-    start_date = datetime.strptime(batch[1], "%Y-%m-%d").date()
-    end_date = datetime.strptime(batch[2], "%Y-%m-%d").date()
+    start_date = datetime.strptime(batch['start_date'], "%Y-%m-%d").date()
+    end_date = datetime.strptime(batch['end_date'], "%Y-%m-%d").date()
     today = date.today()
     
     days_total = (end_date - start_date).days
@@ -158,9 +183,9 @@ def get_batch_progress():
     days_remaining = (end_date - today).days
     
     return {
-        'id': batch[0],
-        'start_date': batch[1],
-        'end_date': batch[2],
+        'id': batch['id'],
+        'start_date': batch['start_date'],
+        'end_date': batch['end_date'],
         'days_total': days_total,
         'days_elapsed': days_elapsed,
         'days_remaining': max(0, days_remaining),
@@ -174,10 +199,7 @@ def close_batch(batch_id):
     c = conn.cursor()
     c.execute("UPDATE batches SET status='closed' WHERE id=?", (batch_id,))
     conn.commit()
-    conn.close()
 
-
-# ============ PEOPLE FUNCTIONS ============
 
 def add_person(name, role, roll_number="", email="", batch_id=None):
     """Add a new person to the database"""
@@ -186,7 +208,7 @@ def add_person(name, role, roll_number="", email="", batch_id=None):
     
     if batch_id is None:
         batch = get_active_batch()
-        batch_id = batch[0] if batch else None
+        batch_id = batch['id'] if batch else None
     
     c.execute("""
         INSERT INTO people (name, role, roll_number, email, class_name, batch_id, active, registered_at)
@@ -196,7 +218,6 @@ def add_person(name, role, roll_number="", email="", batch_id=None):
     
     person_id = c.lastrowid
     conn.commit()
-    conn.close()
     
     return person_id
 
@@ -205,35 +226,30 @@ def get_active_people():
     """Get all active people"""
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM people WHERE active=1 ORDER BY name")
-    people = c.fetchall()
-    conn.close()
-    return people
+    c.execute("SELECT id, name, role, roll_number, email, class_name, registered_at FROM people WHERE active=1 ORDER BY name")
+    rows = c.fetchall()
+    return [tuple(row) for row in rows]
 
 
 def get_person_by_name(name):
-    """Get person by name"""
+    """Get person by name (case-insensitive)"""
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT * FROM people WHERE name=? AND active=1", (name,))
-    person = c.fetchone()
-    conn.close()
-    return person
+    c.execute("SELECT * FROM people WHERE name=? COLLATE NOCASE AND active=1", (name,))
+    row = c.fetchone()
+    return dict(row) if row else None
 
 
 def remove_person(name):
     """Mark person as inactive (soft delete)"""
     conn = get_connection()
     c = conn.cursor()
-    c.execute("UPDATE people SET active=0 WHERE name=?", (name,))
+    c.execute("UPDATE people SET active=0 WHERE name=? COLLATE NOCASE", (name,))
     conn.commit()
-    conn.close()
 
 
-# ============ ATTENDANCE FUNCTIONS ============
-
-def mark_attendance(name, roll_number="", batch_id=None):
-    """Mark attendance for a person"""
+def mark_attendance(name, roll_number="", batch_id=None, confidence=None):
+    """Mark attendance for a person (case-insensitive)."""
     conn = get_connection()
     c = conn.cursor()
     
@@ -242,22 +258,20 @@ def mark_attendance(name, roll_number="", batch_id=None):
     
     if batch_id is None:
         batch = get_active_batch()
-        batch_id = batch[0] if batch else None
+        batch_id = batch['id'] if batch else None
     
-    # Check if already marked today
-    c.execute("SELECT id FROM attendance WHERE name=? AND date=?", (name, today))
-    if c.fetchone():
-        conn.close()
+    person_id = _get_person_id_by_name(name)
+    
+    try:
+        c.execute("""
+            INSERT INTO attendance (person_id, name, roll_number, date, time_in, status, batch_id, confidence)
+            VALUES (?, ?, ?, ?, ?, 'present', ?, ?)
+        """, (person_id, name, roll_number, today, current_time, batch_id, confidence))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        conn.rollback()
         return False
-    
-    c.execute("""
-        INSERT INTO attendance (person_id, name, roll_number, date, time_in, status, batch_id)
-        VALUES (?, ?, ?, ?, ?, 'present', ?)
-    """, (None, name, roll_number, today, current_time, batch_id))
-    
-    conn.commit()
-    conn.close()
-    return True
 
 
 def get_today_attendance():
@@ -266,9 +280,8 @@ def get_today_attendance():
     c = conn.cursor()
     today = date.today().isoformat()
     c.execute("SELECT * FROM attendance WHERE date=? ORDER BY time_in", (today,))
-    records = c.fetchall()
-    conn.close()
-    return records
+    rows = c.fetchall()
+    return [dict(row) for row in rows]
 
 
 def get_attendance_by_date_range(start_date, end_date):
@@ -280,9 +293,8 @@ def get_attendance_by_date_range(start_date, end_date):
         WHERE date BETWEEN ? AND ? 
         ORDER BY date, time_in
     """, (start_date, end_date))
-    records = c.fetchall()
-    conn.close()
-    return records
+    rows = c.fetchall()
+    return [dict(row) for row in rows]
 
 
 def get_attendance_summary(start_date, end_date):
@@ -294,63 +306,64 @@ def get_attendance_summary(start_date, end_date):
                SUM(CASE WHEN status='present' THEN 1 ELSE 0 END) as present_days
         FROM attendance 
         WHERE date BETWEEN ? AND ?
-        GROUP BY name
+        GROUP BY name COLLATE NOCASE
     """, (start_date, end_date))
-    records = c.fetchall()
-    conn.close()
-    return records
+    rows = c.fetchall()
+    return [dict(row) for row in rows]
 
-
-# ============ MOVEMENT LOG FUNCTIONS ============
 
 def log_movement(name, role, event_type, batch_id=None):
-    """Log entry/exit movement"""
+    """Log entry/exit movement."""
+    valid_events = {'entry', 'exit'}
+    if event_type not in valid_events:
+        logger.warning(f"Invalid event_type: {event_type}")
+        return
+    
     conn = get_connection()
     c = conn.cursor()
     
     if batch_id is None:
         batch = get_active_batch()
-        batch_id = batch[0] if batch else None
+        batch_id = batch['id'] if batch else None
+    
+    person_id = _get_person_id_by_name(name)
     
     c.execute("""
         INSERT INTO movement_log (person_id, name, role, timestamp, event_type, batch_id)
         VALUES (?, ?, ?, ?, ?, ?)
-    """, (None, name, role, datetime.now().isoformat(), event_type, batch_id))
+    """, (person_id, name, role, datetime.now().isoformat(), event_type, batch_id))
     
     conn.commit()
-    conn.close()
 
 
 def get_today_movement():
-    """Get today's movement log"""
+    """Get today's movement log."""
     conn = get_connection()
     c = conn.cursor()
     today = date.today().isoformat()
+    next_day = (date.today() + timedelta(days=1)).isoformat()
     c.execute("""
-        SELECT * FROM movement_log 
-        WHERE DATE(timestamp)=? 
+        SELECT * FROM movement_log
+        WHERE timestamp >= ? AND timestamp < ?
         ORDER BY timestamp
-    """, (today,))
-    records = c.fetchall()
-    conn.close()
-    return records
+    """, (today, next_day))
+    rows = c.fetchall()
+    return [dict(row) for row in rows]
 
 
 def get_movement_by_date_range(start_date, end_date):
-    """Get movement log by date range"""
+    """Get movement log by date range."""
     conn = get_connection()
     c = conn.cursor()
+    end_inclusive = (datetime.strptime(end_date, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
     c.execute("""
-        SELECT * FROM movement_log 
-        WHERE DATE(timestamp) BETWEEN ? AND ?
+        SELECT * FROM movement_log
+        WHERE timestamp >= ? AND timestamp < ?
         ORDER BY timestamp
-    """, (start_date, end_date))
-    records = c.fetchall()
-    conn.close()
-    return records
+    """, (start_date, end_inclusive))
+    rows = c.fetchall()
+    return [dict(row) for row in rows]
 
-
-# ============ ALERTS FUNCTIONS ============
 
 def save_alert(image_path, pdf_path, location):
     """Save alert to database"""
@@ -366,7 +379,6 @@ def save_alert(image_path, pdf_path, location):
     
     alert_db_id = c.lastrowid
     conn.commit()
-    conn.close()
     
     return alert_db_id, alert_id
 
@@ -377,7 +389,6 @@ def mark_alert_sent(alert_id):
     c = conn.cursor()
     c.execute("UPDATE alerts SET alert_sent=1 WHERE id=?", (alert_id,))
     conn.commit()
-    conn.close()
 
 
 def get_recent_alerts(limit=20):
@@ -385,12 +396,9 @@ def get_recent_alerts(limit=20):
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT ?", (limit,))
-    alerts = c.fetchall()
-    conn.close()
-    return alerts
+    rows = c.fetchall()
+    return [dict(row) for row in rows]
 
-
-# ============ SETTINGS FUNCTIONS ============
 
 def get_setting(key, default=None):
     """Get a setting value"""
@@ -398,8 +406,7 @@ def get_setting(key, default=None):
     c = conn.cursor()
     c.execute("SELECT value FROM settings WHERE key=?", (key,))
     row = c.fetchone()
-    conn.close()
-    return row[0] if row else default
+    return row['value'] if row else default
 
 
 def set_setting(key, value):
@@ -408,7 +415,6 @@ def set_setting(key, value):
     c = conn.cursor()
     c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
     conn.commit()
-    conn.close()
 
 
 def get_all_settings():
@@ -417,46 +423,42 @@ def get_all_settings():
     c = conn.cursor()
     c.execute("SELECT key, value FROM settings")
     rows = c.fetchall()
-    conn.close()
-    return dict(rows)
+    return {row['key']: row['value'] for row in rows}
 
-
-# ============ STATS FUNCTIONS ============
 
 def get_stats():
-    """Get dashboard statistics"""
+    """Get dashboard statistics."""
     conn = get_connection()
     c = conn.cursor()
     
     today = date.today().isoformat()
     
-    # Today's attendance count
     c.execute("SELECT COUNT(*) FROM attendance WHERE date=?", (today,))
     present_today = c.fetchone()[0] or 0
     
-    # Total active people
     c.execute("SELECT COUNT(*) FROM people WHERE active=1")
     total_people = c.fetchone()[0] or 0
     
-    # Active students
-    c.execute("SELECT COUNT(*) FROM people WHERE active=1 AND role='student'")
+    c.execute("SELECT COUNT(DISTINCT LOWER(name)) FROM people WHERE active=1 AND LOWER(role)='student'")
     total_students = c.fetchone()[0] or 0
     
-    # Active teachers
-    c.execute("SELECT COUNT(*) FROM people WHERE active=1 AND role='teacher'")
+    c.execute("SELECT COUNT(*) FROM people WHERE active=1 AND LOWER(role)='teacher'")
     total_teachers = c.fetchone()[0] or 0
     
-    # Today's alerts
     c.execute("SELECT COUNT(*) FROM alerts WHERE DATE(timestamp)=?", (today,))
     alerts_today = c.fetchone()[0] or 0
     
-    # Today's present students
-    c.execute("SELECT COUNT(DISTINCT name) FROM attendance WHERE date=? AND name IN (SELECT name FROM people WHERE role='student' AND active=1)", (today,))
+    c.execute("""
+        SELECT COUNT(DISTINCT LOWER(a.name))
+        FROM attendance a
+        WHERE a.date=? AND EXISTS (
+            SELECT 1 FROM people p
+            WHERE LOWER(p.name)=LOWER(a.name) AND p.active=1 AND LOWER(p.role)='student'
+        )
+    """, (today,))
     present_students = c.fetchone()[0] or 0
     
     attendance_rate = round((present_students / total_students * 100), 1) if total_students > 0 else 0
-    
-    conn.close()
     
     return {
         'present_today': present_today,

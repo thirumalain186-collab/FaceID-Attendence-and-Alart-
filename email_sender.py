@@ -24,6 +24,8 @@ def send_email_async(func):
     def wrapper(*args, **kwargs):
         thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
         thread.start()
+        return thread
+    wrapper.__wrapped__ = func
     return wrapper
 
 
