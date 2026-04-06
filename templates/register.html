@@ -135,9 +135,8 @@
         });
         
         function handleFiles(files) {
-            const validTypes = ['image/jpeg', 'image/png', 'image/jpg'];
             for (let file of files) {
-                if (validTypes.includes(file.type)) {
+                if (file.type.startsWith('image/')) {
                     selectedFiles.push(file);
                 }
             }
