@@ -20,6 +20,8 @@ from logger import get_logger
 logger = get_logger()
 
 _email_threads = []
+_last_alert_time = 0
+_alert_cooldown = 60
 
 
 def send_email_async(func):
@@ -166,12 +168,17 @@ def send_email(msg, retry_count=None, timeout=None):
     for attempt in range(retry_count):
         try:
             socket.setdefaulttimeout(timeout)
+            import ssl
+            context = ssl.create_default_context() if hasattr(ssl, 'create_default_context') else None
             with smtplib.SMTP(
                 email_config.get("smtp_server", "smtp.gmail.com"),
                 email_config.get("smtp_port", 587)
             ) as server:
                 server.ehlo()
-                server.starttls(context=smtplib.create_default_context())
+                if context:
+                    server.starttls(context=context)
+                else:
+                    server.starttls()
                 server.ehlo()
                 password = email_config.get("sender_password", "")
                 if password:

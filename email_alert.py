@@ -32,7 +32,7 @@ def get_all_email_config():
         "sender_email": os.getenv("SENDER_EMAIL", ""),
         "sender_password": os.getenv("SENDER_PASSWORD", ""),
         "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
-        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_port": int(os.getenv("SMTP_PORT", "587") or 587),
         "class_advisor_email": os.getenv("CLASS_ADVISOR_EMAIL", ""),
         "hod_email": os.getenv("HOD_EMAIL", ""),
     }
