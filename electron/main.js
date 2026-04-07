@@ -35,11 +35,10 @@ function startFlaskServer() {
     log.info('Starting Flask server...');
     
     flaskProcess = spawn(PYTHON_CMD, ['app.py'], {
-      env: { ...process.env, PYTHONPATH: APP_ROOT }
-    });
       cwd: APP_ROOT,
       shell: true,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, PYTHONPATH: APP_ROOT }
     });
 
     flaskProcess.stdout.on('data', (data) => {
