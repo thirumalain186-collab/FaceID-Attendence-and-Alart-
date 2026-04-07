@@ -2,6 +2,21 @@
 
 A complete college project demonstrating face recognition-based attendance management using **OpenCV LBPH Face Recognizer only** (NO dlib, NO face_recognition library).
 
+**Status:** ✅ **PRODUCTION READY FOR SCIENCE EXPO**
+
+## 🚀 Quick Start (60 seconds)
+
+```bash
+# Start monitoring with email alerts
+python run_monitoring.py
+
+# Or use interactive menu
+python START.py
+
+# Or verify system first
+python science_expo_ready.py
+```
+
 ## Features
 
 - **Face Registration**: Capture multiple face angles from webcam
@@ -17,6 +32,19 @@ A complete college project demonstrating face recognition-based attendance manag
 - **Structured Logging**: Centralized logging with rotation
 - **Environment Variables**: Secure credential management
 - **Web Dashboard**: Optional Flask-based web interface
+
+## ✨ NEW: Monitoring Mode with Email Alerts (Science Expo Ready)
+
+**Perfect for Science Expo deployment!**
+
+- ✅ Continuous monitoring without manual interaction
+- ✅ Automatic email alerts when unknown persons detected
+- ✅ Photos of unauthorized persons attached to emails
+- ✅ Sent to BOTH Class Advisor and HOD simultaneously
+- ✅ Complete logging to database
+- ✅ Works on any Windows PC with Python
+- ✅ Ready for immediate deployment
+- ✅ No configuration needed (pre-configured with email credentials)
 
 ## IMPORTANT: Constraints Met
 
