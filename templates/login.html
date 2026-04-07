@@ -199,11 +199,11 @@
                         window.location.href = '/';
                     }, 500);
                 } else {
-                    showAlert(data.error || 'Login failed', 'error');
+                    showAlert(data.error || 'Login failed. Check credentials.', 'error');
                     btn.disabled = false;
                 }
             } catch (error) {
-                showAlert('Connection error. Please try again.', 'error');
+                showAlert('Cannot connect to server. Is Flask running?', 'error');
                 btn.disabled = false;
             }
             
