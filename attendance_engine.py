@@ -143,8 +143,8 @@ class AttendanceEngine:
                 logger.error("Cannot open camera - starting in demo mode")
                 self._is_demo_mode = True
             else:
-                # CAMERA WARMUP: Discard first frames for stable capture
-                for _ in range(3):
+                # CAMERA WARMUP: Discard first 5 frames for stable capture
+                for _ in range(5):
                     self.camera.read()
                 
                 logger.info(f"Camera ready in {time.time() - start_time:.3f}s")
@@ -177,7 +177,7 @@ class AttendanceEngine:
         logger.info("Camera stopped")
     
     def _camera_loop(self):
-        """Main camera processing loop - OPTIMIZED."""
+        """Main camera processing loop - SUPER OPTIMIZED."""
         while self.running:
             if self._is_headless:
                 self._headless_loop()
@@ -193,8 +193,9 @@ class AttendanceEngine:
             
             self.frame_count += 1
             
-            # FRAME SKIPPING: Process every alternate frame
-            if self.frame_count % 2 != 0:
+            # SUPER AGGRESSIVE FRAME SKIPPING: Process every 2nd frame only
+            process_this_frame = self.frame_count % 2 == 0
+            if not process_this_frame:
                 self._show_frame_safe(frame)
                 continue
             
@@ -426,8 +427,8 @@ class AttendanceEngine:
             logger.debug(f"Recognition error: {e}")
     
     def _generate_face_key(self, x, y, w, h):
-        """Generate stable key for face position."""
-        hash_input = f"{x//10}_{y//10}_{w//10}_{h//10}"
+        """Generate stable key for face position - groups nearby detections."""
+        hash_input = f"{x//50}_{y//50}_{w//50}_{h//50}"
         return hashlib.md5(hash_input.encode()).hexdigest()[:12]
     
     def _mark_attendance(self, name, roll, confidence=None, person_id=None):
