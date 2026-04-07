@@ -225,12 +225,12 @@ class AttendanceEngine:
         with self.face_lock:
             label_names_snapshot = dict(self.label_names)
         
-        # Detect on full-size gray for better accuracy
+        # Detect on full-size gray - more sensitive settings
         faces = self.cascade.detectMultiScale(
             gray,
-            scaleFactor=1.1,
-            minNeighbors=5,
-            minSize=(50, 50)
+            scaleFactor=1.05,
+            minNeighbors=3,
+            minSize=(30, 30)
         )
         
         # Debug: Print face count every 30 frames
