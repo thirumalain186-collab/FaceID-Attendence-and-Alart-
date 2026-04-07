@@ -27,13 +27,16 @@ const FLASK_URL = `http://127.0.0.1:${FLASK_PORT}`;
 
 // Get the app root directory (where main.py is)
 const APP_ROOT = path.join(__dirname, '..');
-const PYTHON_CMD = process.platform === 'win32' ? 'python' : 'python3';
+const PYTHON_PATH = "C:\\Users\\thiru\\AppData\\Local\\Programs\\Python\\Python311\\python.exe";
+const PYTHON_CMD = process.platform === 'win32' ? PYTHON_PATH : 'python3';
 
 function startFlaskServer() {
   return new Promise((resolve, reject) => {
     log.info('Starting Flask server...');
     
     flaskProcess = spawn(PYTHON_CMD, ['app.py'], {
+      env: { ...process.env, PYTHONPATH: APP_ROOT }
+    });
       cwd: APP_ROOT,
       shell: true,
       stdio: ['pipe', 'pipe', 'pipe']
