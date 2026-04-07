@@ -144,6 +144,12 @@ ATTENDANCE_CONFIG = {
     "min_face_size": (30, 30),
     "face_tolerance": 0.5,
     "movement_gap_seconds": _validate_int(os.getenv("MOVEMENT_GAP", ""), 5, 1, 300),
+    # Performance optimization settings
+    "detect_scale_factor": 0.5,  # Scale frame for detection (lower = faster)
+    "track_faces": True,  # Enable face tracking between detections
+    "camera_width": 640,   # Camera resolution width
+    "camera_height": 480,  # Camera resolution height
+    "process_every_nth": 3,  # Process detection every N frames, track in between
 }
 
 SCHEDULE_CONFIG = {

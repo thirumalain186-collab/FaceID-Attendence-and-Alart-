@@ -46,6 +46,10 @@ class AttendanceEngine:
         self.demo_timer = 0
         self._last_reset_date = date.today()
         
+        # Performance optimization: face tracking
+        self._tracked_faces = {}  # {face_key: {'x':, 'y':, 'w':, 'h':, 'last_seen': frame_num}}
+        self._process_detection = True  # Toggle between detection and tracking frames
+        
         self.load_resources()
     
     def load_resources(self):
@@ -143,6 +147,12 @@ class AttendanceEngine:
         
         if not self._is_demo_mode:
             self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG.get("camera_index", 0))
+            
+            # Performance: Set camera resolution once at startup
+            cam_width = config.ATTENDANCE_CONFIG.get("camera_width", 640)
+            cam_height = config.ATTENDANCE_CONFIG.get("camera_height", 480)
+            self.camera.set(3, cam_width)  # Width
+            self.camera.set(4, cam_height)  # Height
             
             if not self.camera.isOpened():
                 logger.error("Cannot open camera - starting in demo mode")
@@ -287,31 +297,74 @@ class AttendanceEngine:
             logger.info("Midnight reset - cleared attendance tracking")
     
     def _process_frame(self, frame):
-        """Process single frame with thread safety."""
+        """Process single frame with thread safety and optimizations."""
         if self.cascade is None:
             return
         
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        scale_factor = config.ATTENDANCE_CONFIG.get("scale_factor", 1.3)
+        scale_factor = config.ATTENDANCE_CONFIG.get("scale_factor", 1.1)
         min_neighbors = config.ATTENDANCE_CONFIG.get("min_neighbors", 5)
         min_face_size = config.ATTENDANCE_CONFIG.get("min_face_size", (30, 30))
         image_size = config.ATTENDANCE_CONFIG.get("image_size", (200, 200))
         confidence_threshold = config.ATTENDANCE_CONFIG.get("confidence_threshold", 80)
-        
-        faces = self.cascade.detectMultiScale(
-            gray,
-            scaleFactor=scale_factor,
-            minNeighbors=min_neighbors,
-            minSize=tuple(min_face_size)
-        )
+        detect_scale = config.ATTENDANCE_CONFIG.get("detect_scale_factor", 0.5)
+        enable_tracking = config.ATTENDANCE_CONFIG.get("track_faces", True)
+        process_nth = config.ATTENDANCE_CONFIG.get("process_every_nth", 3)
         
         current_time = time.time()
+        
+        # Toggle between detection and tracking frames
+        should_detect = (self.frame_count % process_nth == 0)
         
         with self.face_lock:
             label_names_snapshot = dict(self.label_names)
         
-        for (x, y, w, h) in faces:
+        if should_detect:
+            # OPTIMIZATION: Detect on scaled-down image for speed
+            if detect_scale < 1.0:
+                small_gray = cv2.resize(gray, None, fx=detect_scale, fy=detect_scale)
+                scale_w = 1.0 / detect_scale
+                scale_h = 1.0 / detect_scale
+            else:
+                small_gray = gray
+                scale_w = 1.0
+                scale_h = 1.0
+            
+            faces = self.cascade.detectMultiScale(
+                small_gray,
+                scaleFactor=scale_factor,
+                minNeighbors=min_neighbors,
+                minSize=(min_face_size[0] // 2, min_face_size[1] // 2)
+            )
+            
+            # Update tracked faces with new detections
+            self._tracked_faces = {}
+            for (sx, sy, sw, sh) in faces:
+                # Scale coordinates back to original frame
+                x, y, w, h = int(sx * scale_w), int(sy * scale_h), int(sw * scale_w), int(sh * scale_h)
+                face_key = self._generate_face_key(x, y, w, h)
+                self._tracked_faces[face_key] = {
+                    'x': x, 'y': y, 'w': w, 'h': h,
+                    'last_seen': self.frame_count,
+                    'recognized': False
+                }
+        
+        # Process tracked faces (from detection or previous tracking)
+        faces_to_process = []
+        if enable_tracking and not should_detect:
+            # Between detection frames, use tracked positions
+            faces_to_process = [
+                (f['x'], f['y'], f['w'], f['h'])
+                for f in self._tracked_faces.values()
+            ]
+        else:
+            faces_to_process = [
+                (f['x'], f['y'], f['w'], f['h'])
+                for f in self._tracked_faces.values()
+            ]
+        
+        for (x, y, w, h) in faces_to_process:
             face_key = self._generate_face_key(x, y, w, h)
             
             if face_key in self.last_seen and current_time - self.last_seen[face_key].get('time', 0) < 2:
@@ -320,6 +373,8 @@ class AttendanceEngine:
             self.last_seen[face_key] = {'time': current_time}
             
             face_roi = gray[y:y+h, x:x+w]
+            if face_roi.size == 0:
+                continue
             face_resized = cv2.resize(face_roi, tuple(image_size))
             
             try:
