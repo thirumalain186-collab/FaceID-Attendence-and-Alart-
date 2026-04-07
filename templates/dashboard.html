@@ -49,9 +49,11 @@
             <p>{{ stats.date }} | Dashboard</p>
         </div>
         <div class="nav-links">
-            <a href="/register">+ Register</a>
+            <span id="user-info" style="color: white; margin-right: 15px; font-size: 14px;"></span>
             <a href="/analytics">📊 Analytics</a>
-            <a href="#" onclick="openFaceDetection()" class="btn-face-detection">📷 Face Detection (Fast)</a>
+            <a href="/register">+ Register</a>
+            <a href="#" onclick="openFaceDetection()" class="btn-face-detection">📷 Face Detection</a>
+            <a href="#" onclick="logout()" style="background: rgba(244,67,54,0.8);">Logout</a>
         </div>
     </div>
     
@@ -199,6 +201,27 @@
                 window.open('/face-detection.html', '_blank');
             }
         }
+        
+        async function logout() {
+            if (confirm('Are you sure you want to logout?')) {
+                try {
+                    await fetch('/api/v1/auth/logout', { method: 'POST' });
+                    window.location.href = '/login';
+                } catch (e) {
+                    window.location.href = '/login';
+                }
+            }
+        }
+        
+        // Check auth status and load user info
+        fetch('/api/v1/auth/status')
+            .then(r => r.json())
+            .then(data => {
+                if (data.authenticated && data.user) {
+                    document.getElementById('user-info').textContent = `👤 ${data.user.name || data.user.username}`;
+                }
+            })
+            .catch(() => {});
         
         loadAttendance();
         loadPeople();

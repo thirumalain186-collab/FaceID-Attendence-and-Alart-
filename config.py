@@ -173,6 +173,21 @@ FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
 FLASK_PORT = _validate_int(env_flask_port, 5000, 1, 65535)
 FLASK_DEBUG = _get_bool(os.getenv("FLASK_DEBUG", "false"))
 
+# Liveness Detection Settings
+LIVENESS_CONFIG = {
+    "enabled": _get_bool(os.getenv("LIVENESS_DETECTION", "false")),
+    "enable_blink_detection": _get_bool(os.getenv("BLINK_DETECTION", "true")),
+    "enable_texture_analysis": _get_bool(os.getenv("TEXTURE_ANALYSIS", "true")),
+    "required_blinks": _validate_int(os.getenv("REQUIRED_BLINKS", ""), 1, 1, 5),
+}
+
+# Authentication Settings
+AUTH_CONFIG = {
+    "require_login": _get_bool(os.getenv("REQUIRE_LOGIN", "true")),
+    "session_timeout": _validate_int(os.getenv("SESSION_TIMEOUT", ""), 3600, 300, 86400),
+    "max_login_attempts": _validate_int(os.getenv("MAX_LOGIN_ATTEMPTS", ""), 5, 3, 10),
+}
+
 # Warn if debug mode is enabled
 if FLASK_DEBUG:
     import sys

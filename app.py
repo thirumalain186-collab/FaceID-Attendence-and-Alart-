@@ -3,7 +3,7 @@ Smart Attendance System - Web Dashboard
 Optional Flask-based web interface for attendance management
 """
 
-from flask import Flask, render_template, jsonify, request, Response
+from flask import Flask, render_template, jsonify, request, Response, redirect, url_for
 from flask_cors import CORS
 import io
 import csv
@@ -17,6 +17,7 @@ from PIL import Image
 import config
 import database
 import email_sender
+import auth
 from logger import get_logger
 
 logger = get_logger()
@@ -24,7 +25,7 @@ logger = get_logger()
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
 app.config.update(
-    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_SECURE=False,  # Set True in production with HTTPS
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
 )
@@ -90,8 +91,91 @@ def require_json(f):
 @app.route("/")
 def index():
     """Dashboard home page."""
+    if not auth.is_authenticated():
+        return redirect(url_for('login_page'))
     stats = database.get_stats()
     return render_template("dashboard.html", stats=stats)
+
+
+@app.route("/login")
+def login_page():
+    """Login page."""
+    if auth.is_authenticated():
+        return redirect(url_for('index'))
+    return render_template("login.html")
+
+
+@app.route("/api/v1/auth/login", methods=["POST"])
+def api_login():
+    """Login API endpoint."""
+    data = request.json if request.is_json else {}
+    
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    
+    if not username or not password:
+        return jsonify({"success": False, "error": "Username and password required"}), 400
+    
+    user = auth.authenticate(username, password)
+    
+    if user:
+        session['user'] = user['username']
+        session['role'] = user['role']
+        session['name'] = user['name']
+        logger.info(f"User logged in: {username}")
+        return jsonify({
+            "success": True,
+            "user": user['username'],
+            "role": user['role'],
+            "name": user['name']
+        })
+    
+    logger.warning(f"Failed login attempt: {username}")
+    return jsonify({"success": False, "error": "Invalid credentials"}), 401
+
+
+@app.route("/api/v1/auth/logout", methods=["POST"])
+def api_logout():
+    """Logout API endpoint."""
+    user = session.get('user', 'Unknown')
+    session.clear()
+    logger.info(f"User logged out: {user}")
+    return jsonify({"success": True})
+
+
+@app.route("/api/v1/auth/status")
+def api_auth_status():
+    """Check authentication status."""
+    if auth.is_authenticated():
+        user = auth.get_current_user()
+        return jsonify({
+            "authenticated": True,
+            "user": user
+        })
+    return jsonify({"authenticated": False})
+
+
+@app.route("/api/v1/auth/change-password", methods=["POST"])
+@auth.login_required
+def api_change_password():
+    """Change password endpoint."""
+    data = request.json if request.is_json else {}
+    
+    old_password = data.get("old_password", "")
+    new_password = data.get("new_password", "")
+    
+    if not old_password or not new_password:
+        return jsonify({"success": False, "error": "Both passwords required"}), 400
+    
+    if len(new_password) < 6:
+        return jsonify({"success": False, "error": "Password must be at least 6 characters"}), 400
+    
+    username = session.get('user')
+    
+    if auth.change_password(username, old_password, new_password):
+        return jsonify({"success": True, "message": "Password changed successfully"})
+    
+    return jsonify({"success": False, "error": "Current password is incorrect"}), 400
 
 
 @app.route("/api/v1/health")
@@ -272,6 +356,7 @@ def api_people():
 
 @app.route("/api/v1/camera/start", methods=["POST"])
 @require_json
+@auth.login_required
 @rate_limit(calls=10, period=60)
 def start_camera():
     """Start camera in background thread."""
@@ -305,6 +390,7 @@ def start_camera():
 
 
 @app.route("/api/v1/camera/stop", methods=["POST"])
+@auth.login_required
 def stop_camera():
     """Stop camera."""
     from attendance_engine import get_engine
@@ -362,6 +448,7 @@ def export_report():
 
 
 @app.route("/api/v1/email/test", methods=["POST"])
+@auth.login_required
 def api_test_email():
     """Test email configuration."""
     success = email_sender.test_email()
@@ -369,6 +456,7 @@ def api_test_email():
 
 
 @app.route("/api/v1/email/send-report", methods=["POST"])
+@auth.login_required
 def api_send_report():
     """Send daily report."""
     import pdf_generator
@@ -392,6 +480,7 @@ def api_get_settings():
 
 @app.route("/api/v1/settings", methods=["POST"])
 @require_json
+@auth.login_required
 def api_save_settings():
     """Save settings to database."""
     data = request.json
