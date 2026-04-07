@@ -106,14 +106,18 @@ class AttendanceEngine:
         
         if config.TRAINER_FILE.exists():
             try:
-                self.recognizer = cv2.face.LBPHFaceRecognizer_create()
+                import cv2.face as cv2_face
+                self.recognizer = cv2_face.LBPHFaceRecognizer_create()
                 self.recognizer.read(str(config.TRAINER_FILE))
                 logger.info("LBPH model loaded")
+            except AttributeError:
+                logger.warning("cv2.face not available - using YOLO tracking only")
+                self.recognizer = None
             except Exception as e:
                 logger.error(f"Failed to load LBPH model: {e}")
                 self.recognizer = None
         else:
-            logger.warning("Model not trained")
+            logger.warning("Model not trained - using YOLO tracking only")
         
         self.reload_faces()
         logger.info(f"Resources preloaded - {len(self.label_names)} people loaded")
