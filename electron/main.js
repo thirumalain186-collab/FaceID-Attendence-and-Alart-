@@ -99,12 +99,13 @@ async function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: 'Smart Attendance System',
+    icon: undefined,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    show: false // Don't show until ready
+    show: true // Show immediately
   });
 
   // Show loading screen
@@ -128,10 +129,17 @@ async function createWindow() {
     log.info(`Loading Flask app from ${FLASK_URL}`);
     await mainWindow.loadURL(FLASK_URL);
     
-    // Show window when ready
+    // Show window immediately and bring to front
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.moveTop();
+    log.info('Window shown and focused');
+    
+    // Also show on ready-to-show event
     mainWindow.once('ready-to-show', () => {
       mainWindow.show();
-      log.info('Window shown');
+      mainWindow.focus();
+      log.info('Window ready-to-show event triggered');
     });
 
   } catch (error) {

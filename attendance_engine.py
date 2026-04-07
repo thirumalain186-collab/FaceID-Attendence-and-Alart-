@@ -290,8 +290,11 @@ class AttendanceEngine:
         except Exception:
             return
         
-        # Skip invalid predictions (label=-1 or very high confidence)
-        if label < 0 or confidence > 200:
+        # Skip invalid predictions:
+        # - label=-1 means couldn't recognize
+        # - confidence > 200 means not confident
+        # - confidence is infinity (LBPH error) - this is the fix!
+        if label < 0 or confidence > 200 or np.isinf(confidence):
             return
         
         # Get name from label map
@@ -312,7 +315,13 @@ class AttendanceEngine:
         self._tracked_faces[face_key]['name'] = name
         
         if self.mode == "attendance":
-            self._mark_attendance(name, confidence=max(0, 100-confidence), person_id=person_id)
+            # Get roll number from person_id_map
+            roll = ''
+            for pid, pinfo in self.person_id_map.items():
+                if pinfo['name'].lower() == name.lower():
+                    roll = pinfo.get('roll', '')
+                    break
+            self._mark_attendance(name, roll, confidence=max(0, 100-confidence), person_id=person_id)
         elif self.mode == "monitoring":
             self._log_movement(name, 'student', person_id)
     
