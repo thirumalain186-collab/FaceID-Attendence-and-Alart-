@@ -226,9 +226,10 @@ class AttendanceEngine:
                 continue
             
             ret, frame = self.camera.read()
-            if not ret:
-                logger.warning("Camera read failed")
-                break
+            if not ret or frame is None or frame.size == 0:
+                logger.warning("Camera read failed, retrying...")
+                time.sleep(0.1)
+                continue
             
             self.frame_count += 1
             
@@ -242,6 +243,9 @@ class AttendanceEngine:
                 self._process_frame_haar(frame)
             
             self._show_frame_safe(frame)
+            
+            # FPS limiter - prevents CPU overheating
+            time.sleep(0.01)  # ~100 FPS max
             
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):

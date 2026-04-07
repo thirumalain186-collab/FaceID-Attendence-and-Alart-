@@ -354,6 +354,24 @@ def api_people():
     return jsonify({"data": records, "count": len(records)})
 
 
+@app.route("/api/v1/summary")
+def api_summary():
+    """Get attendance summary for today."""
+    stats = database.get_stats()
+    attendance = database.get_today_attendance()
+    
+    students = [a for a in attendance if a.get('role') == 'student']
+    staff = [a for a in attendance if a.get('role') != 'student']
+    
+    return jsonify({
+        "total": stats.get('present_today', 0),
+        "students": len(students),
+        "staff": len(staff),
+        "registered": stats.get('total_students', 0),
+        "rate": stats.get('attendance_rate', 0)
+    })
+
+
 @app.route("/api/v1/camera/start", methods=["POST"])
 @require_json
 @auth.login_required
