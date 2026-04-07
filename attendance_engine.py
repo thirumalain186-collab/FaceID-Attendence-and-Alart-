@@ -30,20 +30,10 @@ GPU_CONFIG = {
 }
 
 # Check for YOLO + DeepSort availability
-try:
-    from ultralytics import YOLO
-    from deep_sort_realtime.deepsort_tracker import DeepSort
-    GPU_CONFIG['use_yolo'] = True
-    GPU_CONFIG['use_gpu'] = True
-    GPU_CONFIG['gpu_available'] = True
-    GPU_CONFIG['detection_model'] = 'yolo'
-    GPU_CONFIG['frame_scale'] = 1.0
-    GPU_CONFIG['frame_skip'] = 1
-    print("[GPU] YOLO + DeepSort loaded - GPU acceleration ENABLED")
-except ImportError as e:
-    print(f"[CPU] YOLO not available ({e}) - Using CPU fallback")
-except Exception as e:
-    print(f"[CPU] GPU setup failed: {e}")
+# DISABLED - Use Haar cascade for stability
+GPU_CONFIG['use_yolo'] = False
+GPU_CONFIG['use_gpu'] = False
+print("[CPU] YOLO disabled - Using Haar Cascade (more stable)")
 
 
 class AttendanceEngine:
