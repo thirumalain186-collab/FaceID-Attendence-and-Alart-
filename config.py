@@ -150,6 +150,7 @@ ATTENDANCE_CONFIG = {
     "camera_width": 640,   # Camera resolution width
     "camera_height": 480,  # Camera resolution height
     "process_every_nth": 3,  # Process detection every N frames, track in between
+    "max_faces_per_frame": 10,  # Limit faces processed per frame for performance
 }
 
 SCHEDULE_CONFIG = {

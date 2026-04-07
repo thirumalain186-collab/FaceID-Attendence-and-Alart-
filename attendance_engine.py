@@ -146,17 +146,29 @@ class AttendanceEngine:
         self.demo_timer = 0
         
         if not self._is_demo_mode:
+            start_time = time.time()
+            
+            # OPTIMIZATION 1: Fast camera initialization
             self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG.get("camera_index", 0))
             
-            # Performance: Set camera resolution once at startup
+            # OPTIMIZATION 2: Set resolution BEFORE reading frames
             cam_width = config.ATTENDANCE_CONFIG.get("camera_width", 640)
             cam_height = config.ATTENDANCE_CONFIG.get("camera_height", 480)
-            self.camera.set(3, cam_width)  # Width
-            self.camera.set(4, cam_height)  # Height
+            self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, cam_width)
+            self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, cam_height)
+            self.camera.set(cv2.CAP_PROP_FPS, 30)
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Min buffer
             
             if not self.camera.isOpened():
                 logger.error("Cannot open camera - starting in demo mode")
                 self._is_demo_mode = True
+            else:
+                # OPTIMIZATION 3: Quick camera warmup (discard first 3 frames)
+                # This stabilizes auto-exposure and white balance
+                for _ in range(3):
+                    self.camera.read()
+                
+                logger.info(f"Camera ready in {time.time() - start_time:.3f}s")
         
         if self._is_headless:
             logger.info(f"HEADLESS mode started in {mode} mode (no display)")
@@ -165,6 +177,7 @@ class AttendanceEngine:
         else:
             logger.info(f"Camera started in {mode} mode")
         
+        # Start processing in background thread
         thread = threading.Thread(target=self._camera_loop, daemon=True)
         thread.start()
     
@@ -297,7 +310,15 @@ class AttendanceEngine:
             logger.info("Midnight reset - cleared attendance tracking")
     
     def _process_frame(self, frame):
-        """Process single frame with thread safety and optimizations."""
+        """Process single frame with thread safety and optimizations.
+        
+        OPTIMIZATIONS:
+        1. Frame scaling for faster detection
+        2. Face tracking between detection frames
+        3. Max faces limit to prevent overload
+        4. Skip recently recognized faces
+        5. Recognition only on detection frames
+        """
         if self.cascade is None:
             return
         
@@ -311,6 +332,7 @@ class AttendanceEngine:
         detect_scale = config.ATTENDANCE_CONFIG.get("detect_scale_factor", 0.5)
         enable_tracking = config.ATTENDANCE_CONFIG.get("track_faces", True)
         process_nth = config.ATTENDANCE_CONFIG.get("process_every_nth", 3)
+        max_faces = config.ATTENDANCE_CONFIG.get("max_faces_per_frame", 10)
         
         current_time = time.time()
         
@@ -340,97 +362,144 @@ class AttendanceEngine:
             
             # Update tracked faces with new detections
             self._tracked_faces = {}
+            faces_processed = 0
+            
+            # OPTIMIZATION: Limit faces per frame to prevent overload
             for (sx, sy, sw, sh) in faces:
+                if faces_processed >= max_faces:
+                    break
+                    
                 # Scale coordinates back to original frame
                 x, y, w, h = int(sx * scale_w), int(sy * scale_h), int(sw * scale_w), int(sh * scale_h)
                 face_key = self._generate_face_key(x, y, w, h)
+                
+                # Check if face was recently recognized (skip for speed)
+                already_recognized = face_key in self.last_seen and \
+                    current_time - self.last_seen[face_key].get('time', 0) < 3
+                
                 self._tracked_faces[face_key] = {
                     'x': x, 'y': y, 'w': w, 'h': h,
                     'last_seen': self.frame_count,
-                    'recognized': False
+                    'recognized': already_recognized,
+                    'needs_recognition': not already_recognized
                 }
+                faces_processed += 1
         
-        # Process tracked faces (from detection or previous tracking)
-        faces_to_process = []
-        if enable_tracking and not should_detect:
-            # Between detection frames, use tracked positions
-            faces_to_process = [
-                (f['x'], f['y'], f['w'], f['h'])
-                for f in self._tracked_faces.values()
-            ]
-        else:
-            faces_to_process = [
-                (f['x'], f['y'], f['w'], f['h'])
-                for f in self._tracked_faces.values()
-            ]
+        # OPTIMIZATION: Draw boxes for all tracked faces immediately
+        # Only do recognition on detection frames to save CPU
+        faces_to_recognize = []
         
-        for (x, y, w, h) in faces_to_process:
-            face_key = self._generate_face_key(x, y, w, h)
+        for face_key, face_data in self._tracked_faces.items():
+            x, y, w, h = face_data['x'], face_data['y'], face_data['w'], face_data['h']
             
-            if face_key in self.last_seen and current_time - self.last_seen[face_key].get('time', 0) < 2:
-                continue
+            # Always draw the face box
+            if face_data.get('recognized'):
+                # Known face - green box
+                color = (0, 200, 0)
+                label = face_data.get('name', 'Recognized')[:15]
+            else:
+                # Unknown face - gray box
+                color = (100, 100, 100)
+                label = "New Face"
             
-            self.last_seen[face_key] = {'time': current_time}
+            cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+            cv2.rectangle(frame, (x, y+h+20), (x+w, y+h), color, cv2.FILLED)
+            cv2.putText(frame, label, (x+4, y+h+15),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
             
-            face_roi = gray[y:y+h, x:x+w]
-            if face_roi.size == 0:
-                continue
-            face_resized = cv2.resize(face_roi, tuple(image_size))
+            # Only recognize on detection frames
+            if should_detect and face_data.get('needs_recognition', False):
+                faces_to_recognize.append((x, y, w, h, face_key))
+        
+        # OPTIMIZATION: Batch process recognitions
+        for (x, y, w, h, face_key) in faces_to_recognize:
+            self._recognize_and_process_face(
+                frame, gray, x, y, w, h, face_key, 
+                current_time, label_names_snapshot, image_size, confidence_threshold
+            )
+        
+        # Update recognized status for next frame
+        for face_key in self._tracked_faces:
+            if face_key in self.last_seen:
+                self._tracked_faces[face_key]['recognized'] = True
+    
+    def _recognize_and_process_face(self, frame, gray, x, y, w, h, face_key, 
+                                     current_time, label_names_snapshot, 
+                                     image_size, confidence_threshold):
+        """Recognize a single face and process attendance/movement.
+        
+        Extracted for cleaner code and potential future parallelization.
+        """
+        # Update last seen time
+        self.last_seen[face_key] = {'time': current_time}
+        
+        # Extract face ROI
+        face_roi = gray[y:y+h, x:x+w]
+        if face_roi.size == 0:
+            return
+        
+        # Resize face for recognition
+        face_resized = cv2.resize(face_roi, tuple(image_size))
+        
+        try:
+            if self.recognizer is None:
+                return
             
-            try:
-                if self.recognizer is None:
-                    label_text = "Model not loaded"
-                    color = (100, 100, 100)
-                    cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-                    cv2.putText(frame, label_text[:20], (x+4, y+h+15),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
-                    continue
+            # Predict using LBPH recognizer
+            label, confidence = self.recognizer.predict(face_resized)
+            lbph_confidence = max(0, 100 - confidence)
+            
+            if confidence < confidence_threshold:
+                # Known face found
+                face_info = label_names_snapshot.get(label, {})
                 
-                label, confidence = self.recognizer.predict(face_resized)
-                
-                lbph_confidence = max(0, 100 - confidence)
-                
-                if confidence < confidence_threshold:
-                    face_info = label_names_snapshot.get(label, {})
+                if face_info:
+                    name = face_info['original_name']
+                    role = face_info['role']
+                    roll = face_info.get('roll', '')
+                    person_id = face_info.get('id')
                     
-                    if face_info:
-                        name = face_info['original_name']
-                        role = face_info['role']
-                        roll = face_info.get('roll', '')
-                        person_id = face_info.get('id')
-                        
-                        label_text = f"{name} ({roll or role})"
-                        color = (0, 200, 0) if role == 'student' else (200, 150, 0)
-                        
-                        if self.mode == "attendance":
-                            self._mark_attendance(name, role, roll, lbph_confidence, person_id)
-                        elif self.mode == "monitoring":
-                            self._log_movement(name, role, person_id)
-                    else:
-                        label_text = "Unknown"
-                        color = (100, 100, 100)
+                    label_text = f"{name} ({roll or role})"
+                    color = (0, 200, 0) if role == 'student' else (200, 150, 0)
+                    
+                    # Mark attendance or log movement
+                    if self.mode == "attendance":
+                        self._mark_attendance(name, role, roll, lbph_confidence, person_id)
+                    elif self.mode == "monitoring":
+                        self._log_movement(name, role, person_id)
+                    
+                    # Update tracked face info
+                    if face_key in self._tracked_faces:
+                        self._tracked_faces[face_key]['name'] = name
+                        self._tracked_faces[face_key]['recognized'] = True
                 else:
-                    label_text = "UNKNOWN"
-                    color = (0, 0, 220)
-                    
-                    with self.alert_lock:
-                        should_alert = (
-                            face_key not in self.last_alert_time or
-                            current_time - self.last_alert_time.get(face_key, 0) > self.alert_cooldown
-                        )
-                        if should_alert:
-                            self.last_alert_time[face_key] = current_time
-                    
+                    label_text = "Unknown"
+                    color = (100, 100, 100)
+            else:
+                # Unknown face
+                label_text = "UNKNOWN"
+                color = (0, 0, 220)
+                
+                # Check if we should send alert
+                with self.alert_lock:
+                    should_alert = (
+                        face_key not in self.last_alert_time or
+                        current_time - self.last_alert_time.get(face_key, 0) > self.alert_cooldown
+                    )
                     if should_alert:
-                        self._handle_unknown(frame, x, y, w, h)
+                        self.last_alert_time[face_key] = current_time
                 
-                cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
-                cv2.rectangle(frame, (x, y+h+20), (x+w, y+h), color, cv2.FILLED)
-                cv2.putText(frame, label_text[:20], (x+4, y+h+15),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
-                
-            except Exception as e:
-                logger.debug(f"Error processing face: {e}")
+                if should_alert:
+                    self._handle_unknown(frame, x, y, w, h)
+            
+            # Draw final box and label
+            cv2.rectangle(frame, (x, y), (x+w, y+h), color, 2)
+            cv2.rectangle(frame, (x, y+h+20), (x+w, y+h), color, cv2.FILLED)
+            cv2.putText(frame, label_text[:20], (x+4, y+h+15),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255,255,255), 1)
+            
+        except Exception as e:
+            logger.debug(f"Recognition error: {e}")
     
     def _generate_face_key(self, x, y, w, h):
         """Generate stable key for face position (without timestamp)."""
