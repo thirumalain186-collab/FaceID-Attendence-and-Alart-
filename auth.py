@@ -31,11 +31,12 @@ def _get_users():
     """Get users from database or defaults."""
     users = dict(_DEFAULT_USERS)
     
-    # Check if custom admin is set
+    # Check if custom admin is set (only if not empty/default)
     custom_admin = database.get_setting("admin_user")
     custom_pass = database.get_setting("admin_password")
     
-    if custom_admin and custom_pass:
+    # Only override if both are set and not default-like values
+    if custom_admin and custom_pass and len(custom_pass) >= 6:
         users["admin"] = {
             "password_hash": hashlib.sha256(custom_pass.encode()).hexdigest(),
             "role": "admin",
