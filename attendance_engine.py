@@ -139,11 +139,16 @@ class AttendanceEngine:
             for person in database.get_active_people():
                 pid = person.get('id')
                 name = person.get('name', '')
+                roll = person.get('roll_number', '')
                 if pid and name:
-                    self.person_id_map[pid] = {'name': name.lower()}
+                    self.person_id_map[pid] = {
+                        'name': name.lower(),
+                        'roll': roll or ''
+                    }
             
             names = [v['original_name'] for v in self.label_names.values()]
             logger.info(f"Loaded {len(self.label_names)} people: {names}")
+            logger.info(f"Person ID map: {self.person_id_map}")
     
     def start_camera(self, mode="attendance", demo_mode=False, headless=False):
         if self.running:
@@ -175,6 +180,7 @@ class AttendanceEngine:
         
         mode_str = "HEADLESS" if self._is_headless else "DEMO" if self._is_demo_mode else "LIVE"
         logger.info(f"Started: {mode_str} mode")
+        logger.info(f"Attendance mode: {self.mode}")
         
         thread = threading.Thread(target=self._camera_loop, daemon=True)
         thread.start()
@@ -283,24 +289,31 @@ class AttendanceEngine:
         face_resized = cv2.resize(face_roi, IMG_SIZE)
         
         if self.recognizer is None:
+            logger.info("Recognizer is None")
             return
         
         try:
             label, confidence = self.recognizer.predict(face_resized)
-        except Exception:
+            logger.info(f"[PREDICT] label={label}, confidence={confidence}")
+        except Exception as e:
+            logger.info(f"[PREDICT ERROR] {e}")
             return
         
         # Skip invalid predictions:
         # - label=-1 means couldn't recognize
         # - confidence > 200 means not confident
-        # - confidence is infinity (LBPH error) - this is the fix!
-        if label < 0 or confidence > 200 or np.isinf(confidence):
+        # - confidence is very large (LBPH error - can be huge float or actual infinity)
+        if label < 0 or confidence > 200 or np.isinf(confidence) or confidence > 1e308:
+            logger.info(f"[SKIP] label={label}, confidence={confidence}, isinf={np.isinf(confidence)}, huge={confidence > 1e308}")
             return
         
         # Get name from label map
         display_name = self.label_map.get(label, None)
         if not display_name:
+            logger.info(f"[NO_NAME] label={label} not in label_map")
             return
+        
+        logger.info(f"[RECOGNIZED] display_name={display_name}")
         
         # Parse name from "Name (roll)" format
         name = display_name.split('(')[0].strip() if '(' in display_name else display_name.strip()
@@ -313,6 +326,7 @@ class AttendanceEngine:
                 break
         
         self._tracked_faces[face_key]['name'] = name
+        logger.info(f"[FACE_TRACKED] face_key={face_key}, name={name}, person_id={person_id}")
         
         if self.mode == "attendance":
             # Get roll number from person_id_map
@@ -321,6 +335,7 @@ class AttendanceEngine:
                 if pinfo['name'].lower() == name.lower():
                     roll = pinfo.get('roll', '')
                     break
+            logger.info(f"[MARK_ATTENDANCE] name={name}, roll={roll}, confidence={max(0, 100-confidence)}")
             self._mark_attendance(name, roll, confidence=max(0, 100-confidence), person_id=person_id)
         elif self.mode == "monitoring":
             self._log_movement(name, 'student', person_id)
@@ -445,3 +460,4 @@ def get_engine():
             if _engine is None:
                 _engine = AttendanceEngine()
     return _engine
+

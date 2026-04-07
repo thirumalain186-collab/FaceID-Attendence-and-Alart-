@@ -44,7 +44,7 @@ def _extract_roll_from_folder(folder_name):
 
 
 def _load_image(image_path, target_size, cascade=None):
-    """Load and preprocess image with face detection. Returns grayscale numpy array or None."""
+    """Load and preprocess image. Dataset images are ALREADY extracted faces."""
     try:
         img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
         if img is None:
@@ -52,21 +52,9 @@ def _load_image(image_path, target_size, cascade=None):
         if img.shape[0] < 20 or img.shape[1] < 20:
             return None
         
-        # Detect face within the image (important: training images are already cropped faces)
-        if cascade is not None:
-            faces = cascade.detectMultiScale(img, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
-            if len(faces) > 0:
-                # Extract the detected face region
-                (x, y, w, h) = faces[0]
-                face_roi = img[y:y+h, x:x+w]
-                # Resize to target size
-                img = cv2.resize(face_roi, target_size)
-            else:
-                # If no face detected, just resize the whole image (fallback)
-                img = cv2.resize(img, target_size)
-        else:
-            # If no cascade provided, just resize (backwards compatibility)
-            img = cv2.resize(img, target_size)
+        # Dataset images are ALREADY extracted faces, so just resize directly
+        # Do NOT apply cascade detection - it would corrupt the face
+        img = cv2.resize(img, target_size)
         
         return img
     except Exception:
