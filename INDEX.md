@@ -1,5 +1,13 @@
 # 📚 Documentation Index
 
+## 🎯 FOR SCIENCE EXPO - START HERE
+
+**Want beautiful desktop UI with email alerts?**  
+→ Read: [ELECTRON_GUIDE.md](ELECTRON_GUIDE.md)  
+→ Run: `npm start`
+
+---
+
 ## Quick Navigation
 
 ### 🚀 **Start Here**
@@ -11,6 +19,7 @@
 - [SCIENCE_EXPO_DEPLOYMENT.md](SCIENCE_EXPO_DEPLOYMENT.md) - Complete deployment guide
 - [DEPLOYMENT_LOCATIONS.md](DEPLOYMENT_LOCATIONS.md) - Where to deploy
 - [SYSTEM_STATUS.md](SYSTEM_STATUS.md) - Full system status report
+- **[ELECTRON_GUIDE.md](ELECTRON_GUIDE.md) - Desktop UI for Science Expo** ⭐
 
 ### ⚙️ **Operation**
 - [MONITORING_MODE_WITH_ALERTS.md](MONITORING_MODE_WITH_ALERTS.md) - Monitoring guide
@@ -40,6 +49,7 @@
 | [SCIENCE_EXPO_DEPLOYMENT.md](SCIENCE_EXPO_DEPLOYMENT.md) | Step-by-step deployment for Science Expo | 10 min |
 | [DEPLOYMENT_LOCATIONS.md](DEPLOYMENT_LOCATIONS.md) | Deploy to different locations | 5 min |
 | [DEPLOYMENT_READY.txt](DEPLOYMENT_READY.txt) | Quick deployment status | 2 min |
+| **[ELECTRON_GUIDE.md](ELECTRON_GUIDE.md)** | **Desktop UI with monitoring & alerts** | **10 min** |
 
 ### Operation Guides
 
@@ -94,6 +104,11 @@ Deployment Readiness: ✅ 100%
 ---
 
 ## 📋 Navigation by Task
+
+### "I want to demonstrate in Electron (Beautiful Desktop UI for Science Expo)"
+→ Read: [ELECTRON_GUIDE.md](ELECTRON_GUIDE.md)  
+→ Run: `npm start`  
+→ Click "Start Monitoring" button
 
 ### "I need to start the system now"
 → Read: [QUICK_START.md](QUICK_START.md)  
