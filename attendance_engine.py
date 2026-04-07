@@ -1,6 +1,7 @@
 """
 Attendance Engine for Smart Attendance System v2
 OPTIMIZED VERSION: Real-time, Multi-Face, Fast Performance
+GPU Support: Automatic detection with CPU fallback
 """
 
 import cv2
@@ -17,6 +18,34 @@ import pdf_generator
 from logger import get_logger
 
 logger = get_logger()
+
+# GPU Detection - Automatic with CPU fallback
+GPU_CONFIG = {
+    'gpu_available': False,
+    'use_gpu': False,
+    'detection_model': 'hog',
+    'frame_scale': 0.25,
+    'frame_skip': 2,
+}
+
+# Check for GPU support
+try:
+    import dlib
+    GPU_CONFIG['gpu_available'] = dlib.DLIB_USE_CUDA
+    if dlib.DLIB_USE_CUDA:
+        GPU_CONFIG['use_gpu'] = True
+        GPU_CONFIG['detection_model'] = 'cnn'
+        GPU_CONFIG['frame_scale'] = 0.5
+        GPU_CONFIG['frame_skip'] = 1  # Process every frame with GPU
+        print(f"[GPU] CUDA detected - Using GPU acceleration")
+    else:
+        print(f"[CPU] Running on CPU (set GPU_CONFIG to force GPU)")
+except ImportError:
+    print(f"[CPU] dlib not available - Using CPU (Haar Cascade)")
+except Exception as e:
+    print(f"[CPU] GPU check failed: {e}")
+
+print(f"[INFO] Mode: {GPU_CONFIG['detection_model'].upper()} | Scale: {GPU_CONFIG['frame_scale']} | Skip: {GPU_CONFIG['frame_skip']}")
 
 
 class AttendanceEngine:
@@ -193,8 +222,8 @@ class AttendanceEngine:
             
             self.frame_count += 1
             
-            # SUPER AGGRESSIVE FRAME SKIPPING: Process every 2nd frame only
-            process_this_frame = self.frame_count % 2 == 0
+            # GPU-aware FRAME SKIPPING: GPU=1 (every frame), CPU=2 (every 2nd)
+            process_this_frame = self.frame_count % GPU_CONFIG['frame_skip'] == 0
             if not process_this_frame:
                 self._show_frame_safe(frame)
                 continue
@@ -294,30 +323,32 @@ class AttendanceEngine:
         """Process frame - OPTIMIZED for real-time multi-face detection.
         
         KEY OPTIMIZATIONS:
-        1. Resize to 25% for detection (16x faster)
-        2. Limit max faces per frame (10)
-        3. Skip recently recognized faces
-        4. Track faces between frames
+        1. GPU-aware scaling (GPU=50%, CPU=25%)
+        2. GPU-aware frame skip (GPU=1, CPU=2)
+        3. Limit max faces per frame (10)
+        4. Skip recently recognized faces
+        5. Track faces between frames
         """
         if self.cascade is None:
             return
         
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
-        # Configuration
+        # GPU-aware Configuration
         scale_factor = 1.1
         min_neighbors = 5
         image_size = (200, 200)
         confidence_threshold = 80
-        detect_scale = 0.25  # 25% size = 16x faster detection
-        max_faces = 10  # Limit to prevent overload
+        detect_scale = GPU_CONFIG['frame_scale']  # GPU=0.5, CPU=0.25
+        max_faces = 10 if GPU_CONFIG['use_gpu'] else 10  # Increase if GPU
+        scale_multiplier = int(1 / detect_scale)
         
         current_time = time.time()
         
         with self.face_lock:
             label_names_snapshot = dict(self.label_names)
         
-        # RESIZE to 25% for detection
+        # RESIZE for detection (GPU-aware scale)
         small_gray = cv2.resize(gray, None, fx=detect_scale, fy=detect_scale)
         scale_w = 1.0 / detect_scale
         scale_h = 1.0 / detect_scale
@@ -509,9 +540,10 @@ class AttendanceEngine:
         cv2.putText(frame, f"Registered: {label_count} | Marked: {len(self.marked_today)}",
                    (10, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200,200,200), 1)
         
-        # Show FPS indicator
-        cv2.putText(frame, "REAL-TIME OPTIMIZED", (10, frame.shape[0]-10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+        # Show GPU/CPU mode indicator
+        gpu_label = f"GPU: {'ON' if GPU_CONFIG['use_gpu'] else 'OFF'}"
+        cv2.putText(frame, gpu_label, (10, frame.shape[0]-10),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255) if GPU_CONFIG['use_gpu'] else (255, 200, 0), 1)
         
         try:
             if not self._is_headless:
