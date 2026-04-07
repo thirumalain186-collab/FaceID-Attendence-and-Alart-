@@ -98,11 +98,10 @@ class AttendanceEngine:
                 GPU_CONFIG['use_gpu'] = False
         
         if not GPU_CONFIG['use_yolo']:
-            if config.HAAR_CASCADE_PATH.exists():
-                self.cascade = cv2.CascadeClassifier(str(config.HAAR_CASCADE_PATH))
-                logger.info("Haar cascade loaded")
-            else:
-                logger.error("Haar cascade not found")
+            # Use OpenCV's built-in cascade
+            cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+            self.cascade = cv2.CascadeClassifier(cascade_path)
+            logger.info(f"Haar cascade loaded from {cascade_path}")
         
         if config.TRAINER_FILE.exists():
             try:
@@ -175,7 +174,8 @@ class AttendanceEngine:
         if not self._is_demo_mode:
             start_time = time.time()
             
-            self.camera = cv2.VideoCapture(config.ATTENDANCE_CONFIG.get("camera_index", 0))
+            # Camera with CAP_DSHOW for Windows compatibility
+            self.camera = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             
             cam_width = config.ATTENDANCE_CONFIG.get("camera_width", 640)
             cam_height = config.ATTENDANCE_CONFIG.get("camera_height", 480)
@@ -185,8 +185,11 @@ class AttendanceEngine:
             self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             
             if not self.camera.isOpened():
-                logger.error("Cannot open camera - starting in demo mode")
-                self._is_demo_mode = True
+                # Try without CAP_DSHOW
+                self.camera = cv2.VideoCapture(0)
+                if not self.camera.isOpened():
+                    logger.error("Cannot open camera - starting in demo mode")
+                    self._is_demo_mode = True
             else:
                 for _ in range(5):
                     self.camera.read()
