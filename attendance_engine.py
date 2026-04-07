@@ -280,7 +280,6 @@ class AttendanceEngine:
         if face_roi.size == 0:
             return
         
-        # Resize to 200x200 for consistent recognition
         face_resized = cv2.resize(face_roi, IMG_SIZE)
         
         if self.recognizer is None:
@@ -288,43 +287,34 @@ class AttendanceEngine:
         
         try:
             label, confidence = self.recognizer.predict(face_resized)
-            
-            # Debug output every 30 frames
-            if self.frame_count % 30 == 0:
-                display_name = self.label_map.get(label, "Unknown")
-                print(f"[RECOG] Label={label}, Conf={confidence:.1f}, Name={display_name}")
-            
-        except Exception as e:
-            print(f"[ERROR] Recognition failed: {e}")
+        except Exception:
             return
         
-        # Confidence threshold: lower is better for LBPH
-        # Increased to 150 for more lenient recognition
-        if confidence < 150:
-            # Get name from label map
-            display_name = self.label_map.get(label, "Unknown")
-            
-            # Parse name from "Name (roll)" format
-            if '(' in display_name:
-                name = display_name.split('(')[0].strip()
-            else:
-                name = display_name.strip()
-            
-            # Look up person_id from database
-            person_id = None
-            for pid, pinfo in self.person_id_map.items():
-                if pinfo['name'].lower() == name.lower():
-                    person_id = pid
-                    break
-            
-            self._tracked_faces[face_key]['name'] = name
-            
-            if self.mode == "attendance":
-                self._mark_attendance(name, confidence=max(0, 100-confidence), person_id=person_id)
-            elif self.mode == "monitoring":
-                self._log_movement(name, 'student', person_id)
-        else:
-            self._tracked_faces[face_key]['name'] = "UNKNOWN"
+        # Skip invalid predictions (label=-1 or very high confidence)
+        if label < 0 or confidence > 150:
+            return
+        
+        # Get name from label map
+        display_name = self.label_map.get(label, None)
+        if not display_name:
+            return
+        
+        # Parse name from "Name (roll)" format
+        name = display_name.split('(')[0].strip() if '(' in display_name else display_name.strip()
+        
+        # Look up person_id from database
+        person_id = None
+        for pid, pinfo in self.person_id_map.items():
+            if pinfo['name'].lower() == name.lower():
+                person_id = pid
+                break
+        
+        self._tracked_faces[face_key]['name'] = name
+        
+        if self.mode == "attendance":
+            self._mark_attendance(name, confidence=max(0, 100-confidence), person_id=person_id)
+        elif self.mode == "monitoring":
+            self._log_movement(name, 'student', person_id)
     
     def _generate_face_key(self, x, y, w, h):
         hash_input = f"{x//50}_{y//50}_{w//50}_{h//50}"
