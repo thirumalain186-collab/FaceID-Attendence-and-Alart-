@@ -304,7 +304,8 @@ class AttendanceEngine:
             return
         
         # Confidence threshold: lower is better for LBPH
-        if confidence < 80:
+        # Increased to 150 for more lenient recognition
+        if confidence < 150:
             # Get name from label map
             display_name = self.label_map.get(label, "Unknown")
             
