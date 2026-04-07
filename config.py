@@ -157,6 +157,9 @@ SCHEDULE_CONFIG = {
     "attendance_stop": _validate_time_format(os.getenv("ATTENDANCE_STOP", "09:30"), "09:30"),
     "day_end": _validate_time_format(os.getenv("DAY_END", "16:30"), "16:30"),
     "batch_days": _validate_int(env_batch_days, 30, 1, 365),
+    "low_attendance_threshold": _validate_int(os.getenv("LOW_ATTENDANCE_THRESHOLD", ""), 75, 50, 95),
+    "low_attendance_days": _validate_int(os.getenv("LOW_ATTENDANCE_DAYS", ""), 30, 7, 90),
+    "send_low_attendance_alerts": _get_bool(os.getenv("SEND_LOW_ATTENDANCE_ALERTS", "true")),
 }
 
 # Secure secret key - generate if not set or using default

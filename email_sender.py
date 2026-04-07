@@ -467,6 +467,110 @@ def send_batch_ending_reminder(days_remaining=5):
         send_email(msg)
 
 
+@send_email_async
+def send_low_attendance_alert(students):
+    """Send email alert for students with low attendance."""
+    recipients = get_recipients()
+    if not recipients:
+        logger.warning("No recipients for low attendance alert")
+        return
+    
+    if not students:
+        logger.info("No students with low attendance")
+        return
+    
+    class_name = _escape_html(database.get_setting("class_name") or config.ATTENDANCE_CONFIG.get("class_name", ""))
+    threshold = config.SCHEDULE_CONFIG.get("low_attendance_threshold", 75)
+    days = config.SCHEDULE_CONFIG.get("low_attendance_days", 30)
+    today = date.today()
+    
+    subject = f"ATTENTION: Low Attendance Alert - {len(students)} Students Below {threshold}%"
+    
+    rows_html = ""
+    for i, student in enumerate(students, 1):
+        name = _escape_html(str(student.get('name', 'Unknown')))
+        roll = _escape_html(str(student.get('roll') or '-'))
+        rate = student.get('rate', 0)
+        present = student.get('present_days', 0)
+        
+        severity = "critical" if rate < 50 else "warning" if rate < 65 else "moderate"
+        bg_color = "#ffcdd2" if severity == "critical" else "#fff3e0" if severity == "warning" else "#fff9c4"
+        border_color = "#c62828" if severity == "critical" else "#e65100" if severity == "warning" else "#f9a825"
+        
+        rows_html += f"""
+        <tr style="background: {bg_color};">
+            <td style="padding: 10px; border: 1px solid {border_color};">{i}</td>
+            <td style="padding: 10px; border: 1px solid {border_color};"><strong>{name}</strong></td>
+            <td style="padding: 10px; border: 1px solid {border_color};">{roll}</td>
+            <td style="padding: 10px; border: 1px solid {border_color};">{present}/{days}</td>
+            <td style="padding: 10px; border: 1px solid {border_color};">
+                <span style="background: {border_color}; color: white; padding: 3px 8px; border-radius: 3px; font-weight: bold;">
+                    {rate}%
+                </span>
+            </td>
+            <td style="padding: 10px; border: 1px solid {border_color}; text-transform: capitalize;">{severity}</td>
+        </tr>
+        """
+    
+    html_body = f"""
+    <html>
+    <body style="font-family: Arial; max-width: 800px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #d32f2f, #c62828); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+            <h2 style="margin: 0;">&#9888; Low Attendance Alert</h2>
+            <p style="margin: 5px 0 0;">Immediate Attention Required</p>
+        </div>
+        <div style="background: #f9f9f9; padding: 20px;">
+            <div style="background: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; border-left: 4px solid #d32f2f;">
+                <p style="margin: 0;"><strong>Report Period:</strong> Last {days} days</p>
+                <p style="margin: 5px 0 0;"><strong>Threshold:</strong> Below {threshold}%</p>
+                <p style="margin: 5px 0 0;"><strong>Students Affected:</strong> {len(students)}</p>
+                <p style="margin: 5px 0 0;"><strong>Report Date:</strong> {today.strftime('%d %B %Y')}</p>
+            </div>
+            
+            <h3 style="color: #333; margin-bottom: 10px;">Students Requiring Attention</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+                <tr style="background: #333; color: white;">
+                    <th style="padding: 10px; text-align: left;">#</th>
+                    <th style="padding: 10px; text-align: left;">Name</th>
+                    <th style="padding: 10px; text-align: left;">Roll No</th>
+                    <th style="padding: 10px; text-align: left;">Present Days</th>
+                    <th style="padding: 10px; text-align: left;">Rate</th>
+                    <th style="padding: 10px; text-align: left;">Severity</th>
+                </tr>
+                {rows_html}
+            </table>
+            
+            <div style="background: #e3f2fd; padding: 15px; border-radius: 5px; border-left: 4px solid #1976d2;">
+                <strong>Recommended Actions:</strong>
+                <ul style="margin: 10px 0 0; padding-left: 20px;">
+                    <li>Contact students/parents regarding attendance</li>
+                    <li>Review reasons for absence</li>
+                    <li>Schedule counseling if needed</li>
+                    <li>Consider makeup attendance opportunities</li>
+                </ul>
+            </div>
+            
+            <p style="margin-top: 20px; text-align: center;">
+                <a href="http://localhost:{config.FLASK_PORT}/analytics" style="background: #1a237e; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
+                    View Full Analytics Dashboard
+                </a>
+            </p>
+        </div>
+        <div style="background: #333; color: #aaa; padding: 15px; text-align: center; font-size: 12px;">
+            Smart Attendance System - Automated Alert
+        </div>
+    </body>
+    </html>
+    """
+    
+    msg = create_email_message(subject, recipients, html_body)
+    
+    if msg and send_email(msg):
+        logger.info(f"Low attendance alert sent for {len(students)} students")
+    else:
+        logger.error("Failed to send low attendance alert")
+
+
 def test_email():
     """Test email configuration."""
     email_config = get_email_config()

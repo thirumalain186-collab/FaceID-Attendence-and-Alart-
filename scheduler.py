@@ -90,6 +90,27 @@ def check_batch_expiry():
         logger.exception(f"Error in batch expiry check: {e}")
 
 
+def check_low_attendance():
+    """Check for students with low attendance and send alerts."""
+    try:
+        if not config.SCHEDULE_CONFIG.get("send_low_attendance_alerts", True):
+            logger.debug("Low attendance alerts disabled")
+            return
+        
+        threshold = config.SCHEDULE_CONFIG.get("low_attendance_threshold", 75)
+        days = config.SCHEDULE_CONFIG.get("low_attendance_days", 30)
+        
+        low_attendance_students = database.get_low_attendance_students(threshold, days)
+        
+        if low_attendance_students:
+            logger.info(f"Found {len(low_attendance_students)} students with attendance below {threshold}%")
+            email_sender.send_low_attendance_alert(low_attendance_students)
+        else:
+            logger.info("No students with low attendance")
+    except Exception as e:
+        logger.exception(f"Error checking low attendance: {e}")
+
+
 def handle_batch_expiry():
     """Handle 30-day batch expiry."""
     try:
@@ -219,6 +240,14 @@ def init_scheduler():
             id='batch_reminder',
             name='Batch Reminder Check'
         )
+        
+        if config.SCHEDULE_CONFIG.get("send_low_attendance_alerts", True):
+            scheduler.add_job(
+                check_low_attendance,
+                CronTrigger(hour=8, minute=0),
+                id='low_attendance',
+                name='Low Attendance Check'
+            )
         
         scheduler.start()
         logger.info("APScheduler started")

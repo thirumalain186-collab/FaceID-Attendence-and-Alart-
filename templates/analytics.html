@@ -56,6 +56,15 @@
         .tab-content.active { display: block; }
         .empty-state { text-align: center; padding: 40px; color: #666; }
         .empty-state .icon { font-size: 48px; margin-bottom: 10px; }
+        .alert-settings { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
+        .setting-row { display: flex; align-items: center; gap: 10px; }
+        .setting-row label { font-weight: 600; }
+        .setting-row select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #1a237e; color: white; }
+        .btn-primary:hover { background: #3949ab; }
+        .alert-success { color: #4caf50; }
+        .alert-error { color: #f44336; }
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
             .filters { flex-direction: column; align-items: stretch; }
@@ -120,6 +129,36 @@
             <h2>Weekly Attendance Trend</h2>
             <div class="chart-container">
                 <div class="chart-bar" id="weekly-chart"></div>
+            </div>
+        </div>
+        
+        <div class="card" id="alert-settings-card">
+            <h2>Low Attendance Alerts</h2>
+            <div class="alert-settings">
+                <div class="setting-row">
+                    <label>Alert Threshold:</label>
+                    <select id="alert-threshold">
+                        <option value="90">Below 90%</option>
+                        <option value="85">Below 85%</option>
+                        <option value="80">Below 80%</option>
+                        <option value="75" selected>Below 75%</option>
+                        <option value="70">Below 70%</option>
+                        <option value="60">Below 60%</option>
+                        <option value="50">Below 50%</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <label>Check Period:</label>
+                    <select id="alert-days">
+                        <option value="7">Last 7 days</option>
+                        <option value="14">Last 14 days</option>
+                        <option value="30" selected>Last 30 days</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <button class="btn btn-primary" onclick="sendManualAlert()">Send Alert Email Now</button>
+                    <span id="alert-status" style="margin-left: 15px;"></span>
+                </div>
             </div>
         </div>
         
@@ -329,6 +368,37 @@
         function refreshData() {
             loadStats();
             loadStudentRates();
+        }
+        
+        async function sendManualAlert() {
+            const threshold = parseInt(document.getElementById('alert-threshold').value);
+            const days = parseInt(document.getElementById('alert-days').value);
+            const statusEl = document.getElementById('alert-status');
+            
+            statusEl.textContent = 'Sending...';
+            statusEl.className = '';
+            
+            try {
+                const res = await fetch(`/api/v1/alerts/low-attendance/send?threshold=${threshold}&days=${days}`, {
+                    method: 'POST'
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    statusEl.textContent = data.message;
+                    statusEl.className = 'alert-success';
+                } else {
+                    statusEl.textContent = 'Failed to send alert';
+                    statusEl.className = 'alert-error';
+                }
+            } catch (e) {
+                statusEl.textContent = 'Error sending alert';
+                statusEl.className = 'alert-error';
+            }
+            
+            setTimeout(() => {
+                statusEl.textContent = '';
+            }, 5000);
         }
         
         loadStats();

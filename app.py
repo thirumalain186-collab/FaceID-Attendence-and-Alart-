@@ -181,6 +181,56 @@ def api_analytics_person(person_id):
     })
 
 
+@app.route("/api/v1/alerts/low-attendance/send", methods=["POST"])
+@rate_limit(calls=5, period=60)
+def api_send_low_attendance_alert():
+    """Manually trigger low attendance alert email."""
+    threshold = request.args.get("threshold", config.SCHEDULE_CONFIG.get("low_attendance_threshold", 75), type=int)
+    days = request.args.get("days", config.SCHEDULE_CONFIG.get("low_attendance_days", 30), type=int)
+    threshold = max(50, min(95, threshold))
+    days = max(7, min(90, days))
+    
+    students = database.get_low_attendance_students(threshold, days)
+    
+    if not students:
+        return jsonify({"success": True, "message": "No students below threshold", "count": 0})
+    
+    email_sender.send_low_attendance_alert(students)
+    return jsonify({"success": True, "message": f"Alert sent for {len(students)} students", "count": len(students)})
+
+
+@app.route("/api/v1/alerts/settings", methods=["GET"])
+def api_get_alert_settings():
+    """Get alert settings."""
+    return jsonify({
+        "low_attendance_threshold": config.SCHEDULE_CONFIG.get("low_attendance_threshold", 75),
+        "low_attendance_days": config.SCHEDULE_CONFIG.get("low_attendance_days", 30),
+        "low_attendance_enabled": config.SCHEDULE_CONFIG.get("send_low_attendance_alerts", True)
+    })
+
+
+@app.route("/api/v1/alerts/settings", methods=["POST"])
+@require_json
+def api_save_alert_settings():
+    """Save alert settings."""
+    threshold = request.json.get("threshold")
+    days = request.json.get("days")
+    enabled = request.json.get("enabled")
+    
+    if threshold is not None:
+        threshold = max(50, min(95, int(threshold)))
+        database.set_setting("low_attendance_threshold", str(threshold))
+    
+    if days is not None:
+        days = max(7, min(90, int(days)))
+        database.set_setting("low_attendance_days", str(days))
+    
+    if enabled is not None:
+        database.set_setting("send_low_attendance_alerts", "1" if enabled else "0")
+    
+    return jsonify({"success": True, "message": "Alert settings saved"})
+
+
 @app.route("/api/v1/attendance/today")
 @rate_limit(calls=60, period=60)
 def api_today_attendance():
