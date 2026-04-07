@@ -225,20 +225,22 @@ class AttendanceEngine:
         with self.face_lock:
             label_names_snapshot = dict(self.label_names)
         
-        small_gray = cv2.resize(gray, None, fx=GPU_CONFIG['frame_scale'], fy=GPU_CONFIG['frame_scale'])
-        
+        # Detect on full-size gray for better accuracy
         faces = self.cascade.detectMultiScale(
-            small_gray,
+            gray,
             scaleFactor=1.1,
             minNeighbors=5,
-            minSize=(15, 15)
+            minSize=(50, 50)
         )
+        
+        # Debug: Print face count every 30 frames
+        if self.frame_count % 30 == 0:
+            print(f"[DEBUG] Faces detected: {len(faces)}")
         
         self._tracked_faces = {}
         
         for (sx, sy, sw, sh) in faces[:10]:
-            x, y, w, h = int(sx / GPU_CONFIG['frame_scale']), int(sy / GPU_CONFIG['frame_scale']), \
-                         int(sw / GPU_CONFIG['frame_scale']), int(sh / GPU_CONFIG['frame_scale'])
+            x, y, w, h = sx, sy, sw, sh
             
             face_key = self._generate_face_key(x, y, w, h)
             recently_seen = face_key in self.last_seen and \
@@ -283,9 +285,16 @@ class AttendanceEngine:
             try:
                 label, confidence = self.recognizer.predict(face_resized)
                 
+                # Debug output
+                if self.frame_count % 30 == 0:
+                    face_info = label_names_snapshot.get(label, {})
+                    name = face_info.get('original_name', 'Unknown') if face_info else 'Unknown'
+                    print(f"[RECOG] Label={label}, Conf={confidence:.1f}, Name={name}")
+                
                 if len(self._face_cache) < self._face_cache_max:
                     self._face_cache[face_hash] = (label, confidence)
-            except Exception:
+            except Exception as e:
+                print(f"[ERROR] Recognition failed: {e}")
                 return
         
         lbph_confidence = max(0, 100 - confidence)
