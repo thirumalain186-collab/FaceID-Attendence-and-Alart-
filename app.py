@@ -591,11 +591,13 @@ def api_register_upload():
         import train
         training_success = train.train_model()
         
+        # Reload engine resources after training
         try:
             engine = attendance_engine.get_engine()
-            engine.reload_faces()
-        except:
-            pass
+            engine.load_resources()  # Full reload including recognizer
+            logger.info("Engine reloaded after training")
+        except Exception as e:
+            logger.warning(f"Could not reload engine: {e}")
         
         return jsonify({
             "success": True,
