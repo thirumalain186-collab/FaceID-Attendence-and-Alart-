@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics - Smart Attendance System</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; }
+        .header { background: linear-gradient(135deg, #1a237e, #3949ab); color: white; padding: 20px; }
+        .header h1 { font-size: 24px; margin-bottom: 5px; }
+        .nav-links { margin-top: 10px; }
+        .nav-links a { color: white; text-decoration: none; margin-right: 15px; padding: 8px 15px; background: rgba(255,255,255,0.1); border-radius: 5px; display: inline-block; }
+        .nav-links a:hover { background: rgba(255,255,255,0.2); }
+        .nav-links a.active { background: rgba(255,255,255,0.3); }
+        .container { max-width: 1200px; margin: 20px auto; padding: 0 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .card h2 { color: #1a237e; margin-bottom: 15px; font-size: 18px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-box { background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center; }
+        .stat-box h3 { color: #666; font-size: 12px; text-transform: uppercase; margin-bottom: 8px; }
+        .stat-box .value { font-size: 28px; font-weight: bold; color: #1a237e; }
+        .stat-box.warning .value { color: #ff9800; }
+        .stat-box.danger .value { color: #f44336; }
+        .stat-box.success .value { color: #4caf50; }
+        .filters { display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+        .filters label { font-weight: 600; }
+        .filters select, .filters input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+        .filters button { padding: 8px 20px; background: #1a237e; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .filters button:hover { background: #3949ab; }
+        .chart-container { height: 250px; margin: 20px 0; position: relative; }
+        .chart-bar { display: flex; align-items: flex-end; justify-content: space-around; height: 200px; padding: 10px 0; border-bottom: 2px solid #eee; }
+        .bar { width: 40px; background: linear-gradient(to top, #1a237e, #3949ab); border-radius: 4px 4px 0 0; transition: height 0.3s; position: relative; min-height: 5px; }
+        .bar:hover { background: linear-gradient(to top, #3949ab, #5c6bc0); }
+        .bar-label { text-align: center; font-size: 11px; color: #666; margin-top: 5px; }
+        .bar-value { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: bold; color: #1a237e; }
+        .bar-rate { position: absolute; bottom: -25px; left: 50%; transform: translateX(-50%); font-size: 10px; color: #666; white-space: nowrap; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f5f5f5; color: #666; font-weight: 600; }
+        tr:hover { background: #fafafa; }
+        .badge { padding: 4px 8px; border-radius: 3px; font-size: 12px; font-weight: 600; }
+        .badge.high { background: #ffebee; color: #c62828; }
+        .badge.medium { background: #fff3e0; color: #e65100; }
+        .badge.low { background: #e8f5e9; color: #2e7d32; }
+        .progress-bar { width: 100px; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 10px; }
+        .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+        .progress-fill.high { background: #4caf50; }
+        .progress-fill.medium { background: #ff9800; }
+        .progress-fill.low { background: #f44336; }
+        .tabs { display: flex; border-bottom: 2px solid #eee; margin-bottom: 20px; }
+        .tab { padding: 12px 24px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; font-weight: 600; color: #666; }
+        .tab:hover { color: #1a237e; }
+        .tab.active { color: #1a237e; border-bottom-color: #1a237e; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .empty-state { text-align: center; padding: 40px; color: #666; }
+        .empty-state .icon { font-size: 48px; margin-bottom: 10px; }
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .filters { flex-direction: column; align-items: stretch; }
+            .bar { width: 25px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Attendance Analytics</h1>
+        <div class="nav-links">
+            <a href="/">Dashboard</a>
+            <a href="/analytics" class="active">Analytics</a>
+            <a href="/register">Register</a>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-box" id="stat-total">
+                <h3>Total Students</h3>
+                <div class="value">-</div>
+            </div>
+            <div class="stat-box" id="stat-present">
+                <h3>Present Today</h3>
+                <div class="value">-</div>
+            </div>
+            <div class="stat-box success" id="stat-rate">
+                <h3>Today's Rate</h3>
+                <div class="value">-</div>
+            </div>
+            <div class="stat-box" id="stat-avg">
+                <h3>7-Day Avg</h3>
+                <div class="value">-</div>
+            </div>
+            <div class="stat-box warning" id="stat-low">
+                <h3>Low Attendance</h3>
+                <div class="value">-</div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="filters">
+                <label>Period:</label>
+                <select id="period-select" onchange="changePeriod()">
+                    <option value="7">Last 7 Days</option>
+                    <option value="14">Last 14 Days</option>
+                    <option value="30" selected>Last 30 Days</option>
+                </select>
+                <label>Low Attendance Threshold:</label>
+                <select id="threshold-select">
+                    <option value="90">Below 90%</option>
+                    <option value="80">Below 80%</option>
+                    <option value="75" selected>Below 75%</option>
+                    <option value="60">Below 60%</option>
+                </select>
+                <button onclick="refreshData()">Refresh</button>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Weekly Attendance Trend</h2>
+            <div class="chart-container">
+                <div class="chart-bar" id="weekly-chart"></div>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('rates')">Student Rates</div>
+            <div class="tab" onclick="showTab('low')">Low Attendance Alert</div>
+            <div class="tab" onclick="showTab('monthly')">Monthly Overview</div>
+        </div>
+        
+        <div id="tab-rates" class="tab-content active">
+            <div class="card">
+                <h2>Student Attendance Rates</h2>
+                <div id="rates-table">Loading...</div>
+            </div>
+        </div>
+        
+        <div id="tab-low" class="tab-content">
+            <div class="card">
+                <h2>Students Needing Attention</h2>
+                <div id="low-attendance-list">Loading...</div>
+            </div>
+        </div>
+        
+        <div id="tab-monthly" class="tab-content">
+            <div class="card">
+                <h2>Monthly Summary</h2>
+                <div id="monthly-summary">Loading...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+        
+        function getThreshold() {
+            return parseInt(document.getElementById('threshold-select').value);
+        }
+        
+        function getPeriod() {
+            return parseInt(document.getElementById('period-select').value);
+        }
+        
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/v1/stats');
+                const data = await res.json();
+                
+                document.querySelector('#stat-total .value').textContent = data.total_students || 0;
+                document.querySelector('#stat-present .value').textContent = data.present_students || 0;
+                
+                const rate = data.attendance_rate || 0;
+                const rateEl = document.querySelector('#stat-rate .value');
+                rateEl.textContent = rate + '%';
+                rateEl.parentElement.className = 'stat-box ' + (rate >= 75 ? 'success' : rate >= 50 ? 'warning' : 'danger');
+                
+                loadWeeklyData();
+                loadLowAttendance();
+            } catch (e) { console.error('Stats error:', e); }
+        }
+        
+        async function loadWeeklyData() {
+            try {
+                const res = await fetch('/api/v1/analytics/weekly');
+                const data = await res.json();
+                
+                const chart = document.getElementById('weekly-chart');
+                const maxPresent = Math.max(...data.data.map(d => d.present), 1);
+                
+                let html = '';
+                data.data.forEach(d => {
+                    const height = Math.max(5, (d.present / maxPresent) * 180);
+                    html += `
+                        <div style="text-align:center">
+                            <div class="bar" style="height:${height}px">
+                                <span class="bar-value">${d.present}</span>
+                            </div>
+                            <div class="bar-label">${d.day_name}<br><small>${d.date.slice(5)}</small></div>
+                        </div>
+                    `;
+                });
+                chart.innerHTML = html;
+                
+                document.querySelector('#stat-avg .value').textContent = (data.summary?.avg_rate || 0) + '%';
+            } catch (e) { console.error('Weekly error:', e); }
+        }
+        
+        async function loadLowAttendance() {
+            try {
+                const threshold = getThreshold();
+                const days = getPeriod();
+                const res = await fetch(`/api/v1/analytics/low-attendance?threshold=${threshold}&days=${days}`);
+                const data = await res.json();
+                
+                const statEl = document.querySelector('#stat-low .value');
+                statEl.textContent = data.count || 0;
+                statEl.parentElement.className = 'stat-box ' + (data.count === 0 ? 'success' : data.count < 5 ? 'warning' : 'danger');
+                
+                const container = document.getElementById('low-attendance-list');
+                if (data.data && data.data.length > 0) {
+                    let html = '<table><tr><th>#</th><th>Name</th><th>Roll No</th><th>Days Present</th><th>Attendance Rate</th></tr>';
+                    data.data.forEach((item, i) => {
+                        const badgeClass = item.rate < 50 ? 'high' : item.rate < 65 ? 'medium' : 'low';
+                        const progressClass = item.rate < 50 ? 'low' : item.rate < 65 ? 'medium' : 'high';
+                        html += `<tr>
+                            <td>${i+1}</td>
+                            <td>${escapeHtml(item.name)}</td>
+                            <td>${escapeHtml(item.roll) || '-'}</td>
+                            <td>${item.present_days} / ${days}</td>
+                            <td>
+                                <span class="badge ${badgeClass}">${item.rate}%</span>
+                                <div class="progress-bar"><div class="progress-fill ${progressClass}" style="width:${item.rate}%"></div></div>
+                            </td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><div class="icon">✓</div><p>No students below ' + threshold + '% threshold!</p></div>';
+                }
+            } catch (e) { console.error('Low attendance error:', e); }
+        }
+        
+        async function loadStudentRates() {
+            try {
+                const days = getPeriod();
+                const res = await fetch(`/api/v1/analytics/rates?days=${days}`);
+                const data = await res.json();
+                
+                const container = document.getElementById('rates-table');
+                if (data.data && data.data.length > 0) {
+                    let html = '<table><tr><th>#</th><th>Name</th><th>Roll No</th><th>Days Present</th><th>Rate</th></tr>';
+                    data.data.forEach((item, i) => {
+                        const badgeClass = item.rate >= 75 ? 'low' : item.rate >= 50 ? 'medium' : 'high';
+                        const progressClass = item.rate >= 75 ? 'high' : item.rate >= 50 ? 'medium' : 'low';
+                        html += `<tr>
+                            <td>${i+1}</td>
+                            <td>${escapeHtml(item.name)}</td>
+                            <td>${escapeHtml(item.roll) || '-'}</td>
+                            <td>${item.present_days} / ${days}</td>
+                            <td>
+                                <span class="badge ${badgeClass}">${item.rate}%</span>
+                                <div class="progress-bar"><div class="progress-fill ${progressClass}" style="width:${item.rate}%"></div></div>
+                            </td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="empty-state"><p>No student data available.</p></div>';
+                }
+            } catch (e) { console.error('Rates error:', e); }
+        }
+        
+        async function loadMonthlySummary() {
+            try {
+                const res = await fetch('/api/v1/analytics/monthly');
+                const data = await res.json();
+                
+                const container = document.getElementById('monthly-summary');
+                if (data.summary) {
+                    const s = data.summary;
+                    container.innerHTML = `
+                        <div class="stats-grid">
+                            <div class="stat-box">
+                                <h3>Month</h3>
+                                <div class="value">${s.month_start?.slice(0,7) || '-'}</div>
+                            </div>
+                            <div class="stat-box">
+                                <h3>Days Active</h3>
+                                <div class="value">${s.days_with_attendance || 0}</div>
+                            </div>
+                            <div class="stat-box">
+                                <h3>Total Check-ins</h3>
+                                <div class="value">${s.total_present || 0}</div>
+                            </div>
+                            <div class="stat-box success">
+                                <h3>Monthly Rate</h3>
+                                <div class="value">${s.rate || 0}%</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (e) { console.error('Monthly error:', e); }
+        }
+        
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[onclick="showTab('${tabName}')"]`).classList.add('active');
+            document.getElementById('tab-' + tabName).classList.add('active');
+            
+            if (tabName === 'rates') loadStudentRates();
+            else if (tabName === 'low') loadLowAttendance();
+            else if (tabName === 'monthly') loadMonthlySummary();
+        }
+        
+        function changePeriod() {
+            loadLowAttendance();
+            loadStudentRates();
+        }
+        
+        function refreshData() {
+            loadStats();
+            loadStudentRates();
+        }
+        
+        loadStats();
+        loadStudentRates();
+    </script>
+</body>
+</html>

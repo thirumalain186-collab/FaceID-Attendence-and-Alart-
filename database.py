@@ -627,6 +627,177 @@ def get_all_settings():
     return {row['key']: row['value'] for row in rows}
 
 
+def get_weekly_attendance():
+    """Get attendance counts for the last 7 days."""
+    conn = get_connection()
+    c = conn.cursor()
+    
+    results = []
+    for i in range(6, -1, -1):
+        day = date.today() - timedelta(days=i)
+        day_str = day.isoformat()
+        
+        c.execute("""
+            SELECT COUNT(*) FROM attendance WHERE date=? 
+            AND EXISTS (SELECT 1 FROM people p WHERE LOWER(p.name)=LOWER(attendance.name) AND p.active=1 AND p.role='student')
+        """, (day_str,))
+        present = c.fetchone()[0] or 0
+        
+        c.execute("SELECT COUNT(*) FROM people WHERE active=1 AND role='student'")
+        total = c.fetchone()[0] or 0
+        
+        results.append({
+            'date': day_str,
+            'day_name': day.strftime('%a'),
+            'present': present,
+            'total': total,
+            'rate': round((present / total * 100), 1) if total > 0 else 0
+        })
+    
+    return results
+
+
+def get_monthly_attendance():
+    """Get attendance counts for the last 30 days."""
+    conn = get_connection()
+    c = conn.cursor()
+    
+    results = []
+    for i in range(29, -1, -1):
+        day = date.today() - timedelta(days=i)
+        day_str = day.isoformat()
+        
+        c.execute("""
+            SELECT COUNT(*) FROM attendance WHERE date=? 
+            AND EXISTS (SELECT 1 FROM people p WHERE LOWER(p.name)=LOWER(attendance.name) AND p.active=1 AND p.role='student')
+        """, (day_str,))
+        present = c.fetchone()[0] or 0
+        
+        c.execute("SELECT COUNT(*) FROM people WHERE active=1 AND role='student'")
+        total = c.fetchone()[0] or 0
+        
+        results.append({
+            'date': day_str,
+            'present': present,
+            'total': total,
+            'rate': round((present / total * 100), 1) if total > 0 else 0
+        })
+    
+    return results
+
+
+def get_person_attendance_rate(person_id, days=30):
+    """Get attendance rate for a specific person over last N days."""
+    conn = get_connection()
+    c = conn.cursor()
+    
+    start_date = (date.today() - timedelta(days=days)).isoformat()
+    end_date = date.today().isoformat()
+    
+    c.execute("""
+        SELECT COUNT(*) FROM attendance 
+        WHERE person_id=? AND date >= ? AND date <= ?
+    """, (person_id, start_date, end_date))
+    present_days = c.fetchone()[0] or 0
+    
+    working_days = min(days, 30)
+    for i in range(days):
+        check_date = date.today() - timedelta(days=i)
+        if check_date.weekday() >= 5:
+            working_days -= 1
+    
+    working_days = max(1, working_days)
+    
+    return {
+        'person_id': person_id,
+        'days': days,
+        'present_days': present_days,
+        'working_days': working_days,
+        'rate': round((present_days / working_days * 100), 1) if working_days > 0 else 0
+    }
+
+
+def get_all_attendance_rates(days=30):
+    """Get attendance rates for all students."""
+    conn = get_connection()
+    c = conn.cursor()
+    
+    start_date = (date.today() - timedelta(days=days)).isoformat()
+    end_date = date.today().isoformat()
+    
+    c.execute("""
+        SELECT p.id, p.name, p.roll_number, p.role,
+               COUNT(a.id) as present_days
+        FROM people p
+        LEFT JOIN attendance a ON p.id = a.person_id AND a.date >= ? AND a.date <= ?
+        WHERE p.active=1 AND p.role='student'
+        GROUP BY p.id
+        ORDER BY present_days DESC
+    """, (start_date, end_date))
+    
+    rows = c.fetchall()
+    results = []
+    
+    working_days = max(1, days - (days // 7 * 2))
+    
+    for row in rows:
+        present = row['present_days'] or 0
+        rate = round((present / working_days * 100), 1) if working_days > 0 else 0
+        results.append({
+            'id': row['id'],
+            'name': row['name'],
+            'roll': row['roll_number'],
+            'present_days': present,
+            'rate': rate
+        })
+    
+    return results
+
+
+def get_low_attendance_students(threshold=75, days=30):
+    """Get students with attendance below threshold."""
+    rates = get_all_attendance_rates(days)
+    return [s for s in rates if s['rate'] < threshold]
+
+
+def get_monthly_summary():
+    """Get summary statistics for current month."""
+    conn = get_connection()
+    c = conn.cursor()
+    
+    today = date.today()
+    month_start = today.replace(day=1).isoformat()
+    
+    c.execute("""
+        SELECT COUNT(DISTINCT date) FROM attendance 
+        WHERE date >= ? AND date <= ?
+    """, (month_start, today.isoformat()))
+    days_with_attendance = c.fetchone()[0] or 0
+    
+    c.execute("""
+        SELECT COUNT(*) FROM attendance 
+        WHERE date >= ? AND date <= ?
+        AND EXISTS (SELECT 1 FROM people p WHERE p.id = attendance.person_id AND p.active=1 AND p.role='student')
+    """, (month_start, today.isoformat()))
+    total_present = c.fetchone()[0] or 0
+    
+    c.execute("SELECT COUNT(*) FROM people WHERE active=1 AND role='student'")
+    total_students = c.fetchone()[0] or 0
+    
+    expected = days_with_attendance * total_students
+    overall_rate = round((total_present / expected * 100), 1) if expected > 0 else 0
+    
+    return {
+        'month_start': month_start,
+        'month_end': today.isoformat(),
+        'days_with_attendance': days_with_attendance,
+        'total_present': total_present,
+        'total_students': total_students,
+        'expected': expected,
+        'rate': overall_rate
+    }
+
+
 def get_stats():
     """Get dashboard statistics."""
     conn = get_connection()

@@ -110,6 +110,77 @@ def api_stats():
     return jsonify(database.get_stats())
 
 
+@app.route("/api/v1/analytics/weekly")
+@rate_limit(calls=30, period=60)
+def api_analytics_weekly():
+    """Get weekly attendance trends (last 7 days)."""
+    return jsonify({
+        "data": database.get_weekly_attendance(),
+        "summary": {
+            "avg_rate": round(sum(d['rate'] for d in database.get_weekly_attendance()) / 7, 1)
+        }
+    })
+
+
+@app.route("/api/v1/analytics/monthly")
+@rate_limit(calls=30, period=60)
+def api_analytics_monthly():
+    """Get monthly attendance trends (last 30 days)."""
+    return jsonify({
+        "data": database.get_monthly_attendance(),
+        "summary": database.get_monthly_summary()
+    })
+
+
+@app.route("/api/v1/analytics/rates")
+@rate_limit(calls=30, period=60)
+def api_analytics_rates():
+    """Get attendance rates for all students."""
+    days = request.args.get("days", 30, type=int)
+    days = max(7, min(90, days))
+    return jsonify({
+        "data": database.get_all_attendance_rates(days),
+        "period_days": days
+    })
+
+
+@app.route("/api/v1/analytics/low-attendance")
+@rate_limit(calls=30, period=60)
+def api_analytics_low():
+    """Get students with low attendance."""
+    threshold = request.args.get("threshold", 75, type=int)
+    days = request.args.get("days", 30, type=int)
+    threshold = max(50, min(95, threshold))
+    days = max(7, min(90, days))
+    return jsonify({
+        "data": database.get_low_attendance_students(threshold, days),
+        "threshold": threshold,
+        "period_days": days,
+        "count": len(database.get_low_attendance_students(threshold, days))
+    })
+
+
+@app.route("/api/v1/analytics/person/<int:person_id>")
+@rate_limit(calls=30, period=60)
+def api_analytics_person(person_id):
+    """Get attendance history for a specific person."""
+    days = request.args.get("days", 30, type=int)
+    days = max(7, min(90, days))
+    person = database.get_person_by_id(person_id)
+    if not person:
+        return jsonify({"error": "Person not found"}), 404
+    rate_data = database.get_person_attendance_rate(person_id, days)
+    return jsonify({
+        "person": {
+            "id": person.get('id'),
+            "name": person.get('name'),
+            "roll": person.get('roll_number'),
+            "role": person.get('role')
+        },
+        "statistics": rate_data
+    })
+
+
 @app.route("/api/v1/attendance/today")
 @rate_limit(calls=60, period=60)
 def api_today_attendance():
@@ -299,6 +370,12 @@ def api_save_settings():
 def register_page():
     """Registration page."""
     return render_template("register.html")
+
+
+@app.route("/analytics")
+def analytics_page():
+    """Analytics dashboard page."""
+    return render_template("analytics.html")
 
 
 @app.route("/api/v1/register/upload", methods=["POST"])
