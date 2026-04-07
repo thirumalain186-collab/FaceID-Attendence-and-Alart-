@@ -89,10 +89,10 @@ System will automatically:
             raise Exception("Electron failed to start")
     except Exception as e:
         print(f"[ERROR] Failed to start Electron: {e}")
-        print("\nTrying Flask/Monitoring Mode instead...")
-        print("\nRunning Monitoring Mode with Email Alerts...\n")
+        print("\nTrying Monitoring Mode instead...")
+        print("\nRunning Continuous Monitoring with Email Alerts...\n")
         try:
-            subprocess.run([sys.executable, "monitoring_with_alerts.py"])
+            subprocess.run([sys.executable, "run_monitoring.py"])
         except Exception as e2:
             print(f"[ERROR] {e2}")
 
@@ -103,11 +103,12 @@ def start_cli():
     print("""
 Choose mode:
 
-1. Monitoring Mode (Recommended)
+1. Monitoring Mode (Recommended) ⭐
    - Real-time monitoring
    - Email alerts on unknown persons
    - Marks registered students
    - Photos of unauthorized persons
+   - Continuous operation
 
 2. Attendance Mode
    - Just marks attendance
@@ -116,7 +117,7 @@ Choose mode:
 3. Headless Mode
    - Silent background operation
    - No display
-    """)
+     """)
     
     print("Enter choice (1-3): ", end="", flush=True)
     mode_choice = input().strip()
@@ -124,7 +125,7 @@ Choose mode:
     if mode_choice == "1":
         print("\n[OK] Starting Monitoring Mode...")
         try:
-            subprocess.run([sys.executable, "monitoring_with_alerts.py"])
+            subprocess.run([sys.executable, "run_monitoring.py"])
         except Exception as e:
             print(f"[ERROR] {e}")
     elif mode_choice == "2":
