@@ -84,37 +84,60 @@ class AttendanceEngine:
         self.reload_faces()
         logger.info(f"Resources loaded - {len(self.label_names)} people")
     
+    def _best_match(self, folder_name, person_map):
+        """Find best matching person - MUST match train.py logic."""
+        folder_lower = folder_name.lower()
+        matches = []
+        for safe_name, person_info in person_map.items():
+            if safe_name in folder_lower:
+                score = len(safe_name)
+                matches.append((score, person_info))
+        if not matches:
+            return None
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return matches[0][1]
+    
     def reload_faces(self):
         with self.face_lock:
             self.label_names = {}
             self.person_id_map = {}
             
+            # Build person map (same as train.py)
+            person_map = {}
             for person in database.get_active_people():
-                person_id = person.get('id')
                 name = person.get('name', '')
-                role = person.get('role', 'student')
-                roll = person.get('roll_number') or ''
-                
                 if not name:
                     continue
-                
                 safe_name = name.replace(" ", "_").lower()
-                
-                for folder in config.DATASET_DIR.iterdir():
-                    if folder.is_dir() and safe_name in folder.name.lower():
-                        label_id = len(self.label_names)
-                        self.label_names[label_id] = {
-                            'id': person_id,
-                            'name': name.lower(),
-                            'original_name': name,
-                            'role': role.lower(),
-                            'roll': roll
-                        }
-                        if person_id:
-                            self.person_id_map[person_id] = {'name': name.lower()}
-                        break
+                person_map[safe_name] = {
+                    'id': person.get('id'),
+                    'name': name,
+                    'role': person.get('role', 'student').lower(),
+                    'roll': person.get('roll_number') or ''
+                }
             
-            logger.info(f"Loaded {len(self.label_names)} people")
+            # Iterate sorted folders (MUST match training order)
+            for folder in sorted(config.DATASET_DIR.iterdir()):
+                if not folder.is_dir():
+                    continue
+                
+                matched = self._best_match(folder.name, person_map)
+                if not matched:
+                    continue
+                
+                label_id = len(self.label_names)
+                self.label_names[label_id] = {
+                    'id': matched['id'],
+                    'name': matched['name'].lower(),
+                    'original_name': matched['name'],
+                    'role': matched['role'],
+                    'roll': matched['roll']
+                }
+                if matched['id']:
+                    self.person_id_map[matched['id']] = {'name': matched['name'].lower()}
+            
+            names = [v['original_name'] for v in self.label_names.values()]
+            logger.info(f"Loaded {len(self.label_names)} people: {names}")
     
     def start_camera(self, mode="attendance", demo_mode=False, headless=False):
         if self.running:
