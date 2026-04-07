@@ -5,6 +5,7 @@ Attendance Engine v3 - PRODUCTION READY
 - Smart face cache for speed
 - Stable Haar cascade detection
 - Proper label map for recognition
+- Monitoring mode with email alerts for unknown persons
 """
 
 import cv2
@@ -17,6 +18,7 @@ from datetime import datetime, date
 from pathlib import Path
 import config
 import database
+import email_sender
 from logger import get_logger
 
 logger = get_logger()
@@ -64,6 +66,10 @@ class AttendanceEngine:
         self._face_cache = {}
         self._face_cache_max = 1000
         self._unknown_count = 0
+        
+        # For monitoring mode unknown person alerts
+        self._unknown_face_alerts = {}  # track unknown faces and their alert times
+        self._unknown_alert_cooldown = 60  # seconds between alerts for same unknown face
         
         self.load_resources()
     
@@ -306,6 +312,11 @@ class AttendanceEngine:
         # - confidence is very large (LBPH error - can be huge float or actual infinity)
         if label < 0 or confidence > 200 or np.isinf(confidence) or confidence > 1e308:
             logger.info(f"[SKIP] label={label}, confidence={confidence}, isinf={np.isinf(confidence)}, huge={confidence > 1e308}")
+            
+            # UNKNOWN FACE DETECTED - Send alert in monitoring mode
+            if self.mode == "monitoring":
+                self._handle_unknown_face(frame, x, y, w, h, confidence, current_time)
+            
             return
         
         # Get name from label map
@@ -366,6 +377,64 @@ class AttendanceEngine:
                 database.log_movement(name, role, 'entry', person_id=person_id)
                 self.last_seen[key] = {'time': current_time}
                 logger.info(f"{name} entered")
+    
+    def _handle_unknown_face(self, frame, x, y, w, h, confidence, current_time):
+        """Handle unknown/unregistered face detection in monitoring mode"""
+        try:
+            # Create a simple face ID based on position
+            face_id = f"{x//50}_{y//50}_{w//50}_{h//50}"
+            
+            # Check if we should send alert for this unknown face
+            if face_id not in self._unknown_face_alerts:
+                # This is a new unknown face - capture and send alert
+                logger.warning(f"[UNKNOWN FACE] Detecting new unknown person")
+                
+                # Capture photo of unknown face
+                face_roi = frame[y:y+h, x:x+w]
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                random_id = np.random.randint(1000, 9999)
+                filename = f"unknown_{timestamp}_{random_id}.jpg"
+                filepath = config.UNKNOWN_DIR / filename
+                
+                cv2.imwrite(str(filepath), face_roi)
+                logger.warning(f"[UNKNOWN_PHOTO] Saved: {filepath}")
+                
+                # Send email alert
+                try:
+                    email_sender.send_unknown_alert(str(filepath))
+                    logger.warning(f"[EMAIL_SENT] Alert sent for unknown face")
+                except Exception as e:
+                    logger.error(f"[EMAIL_ERROR] Failed to send alert: {e}")
+                
+                # Mark that we sent alert for this face
+                self._unknown_face_alerts[face_id] = current_time
+            
+            # Check cooldown - allow multiple alerts if person stays too long
+            elif current_time - self._unknown_face_alerts.get(face_id, 0) > self._unknown_alert_cooldown:
+                logger.warning(f"[UNKNOWN FACE] Same unknown person still present, sending re-alert")
+                
+                # Capture photo again
+                face_roi = frame[y:y+h, x:x+w]
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                random_id = np.random.randint(1000, 9999)
+                filename = f"unknown_{timestamp}_{random_id}.jpg"
+                filepath = config.UNKNOWN_DIR / filename
+                
+                cv2.imwrite(str(filepath), face_roi)
+                logger.warning(f"[UNKNOWN_PHOTO] Re-saved: {filepath}")
+                
+                # Send alert again
+                try:
+                    email_sender.send_unknown_alert(str(filepath))
+                    logger.warning(f"[EMAIL_SENT] Re-alert sent for unknown face")
+                except Exception as e:
+                    logger.error(f"[EMAIL_ERROR] Failed to send re-alert: {e}")
+                
+                self._unknown_face_alerts[face_id] = current_time
+        
+        except Exception as e:
+            logger.error(f"[UNKNOWN_FACE_ERROR] {e}")
+    
     
     def _headless_loop(self):
         self._check_midnight_reset()
