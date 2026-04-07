@@ -149,7 +149,7 @@ class MonitoringEngine:
         
         # Start the attendance engine in monitoring mode
         self.engine.mode = "monitoring"
-        self.engine.start_camera(mode="monitoring", duration=duration)
+        self.engine.start_camera(mode="monitoring")
         
         # Summary
         logger.info("\n" + "="*70)

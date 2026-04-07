@@ -98,6 +98,7 @@ class AttendanceEngine:
         
         self.reload_faces()
         logger.info(f"Resources loaded - {len(self.label_names)} people")
+        return True
     
     def _best_match(self, folder_name, person_map):
         """Find best matching person - MUST match train.py logic."""

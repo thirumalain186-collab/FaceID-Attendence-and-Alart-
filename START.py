@@ -81,12 +81,20 @@ System will automatically:
     
     try:
         import os
+        original_dir = os.getcwd()
         os.chdir("electron")
-        subprocess.run(["npm", "start"])
+        result = subprocess.run(["npm", "start"])
+        os.chdir(original_dir)
+        if result.returncode != 0:
+            raise Exception("Electron failed to start")
     except Exception as e:
         print(f"[ERROR] Failed to start Electron: {e}")
-        print("\nTrying Flask instead...")
-        start_flask()
+        print("\nTrying Flask/Monitoring Mode instead...")
+        print("\nRunning Monitoring Mode with Email Alerts...\n")
+        try:
+            subprocess.run([sys.executable, "monitoring_with_alerts.py"])
+        except Exception as e2:
+            print(f"[ERROR] {e2}")
 
 def start_cli():
     """Start CLI Mode"""
