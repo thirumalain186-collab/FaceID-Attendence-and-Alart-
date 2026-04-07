@@ -144,11 +144,6 @@ class AttendanceEngine:
             
             names = [v['original_name'] for v in self.label_names.values()]
             logger.info(f"Loaded {len(self.label_names)} people: {names}")
-                if matched['id']:
-                    self.person_id_map[matched['id']] = {'name': matched['name'].lower()}
-            
-            names = [v['original_name'] for v in self.label_names.values()]
-            logger.info(f"Loaded {len(self.label_names)} people: {names}")
     
     def start_camera(self, mode="attendance", demo_mode=False, headless=False):
         if self.running:
