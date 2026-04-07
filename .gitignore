@@ -68,3 +68,10 @@ build/
 # Electron
 electron/node_modules/
 electron/dist/
+
+# YOLO models (auto-downloaded)
+yolov8n.pt
+yolov8s.pt
+yolov8m.pt
+yolov8l.pt
+*.pt
