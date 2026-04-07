@@ -1,16 +1,20 @@
 """
 Training Module for Smart Attendance System v2
-Train LBPH Face Recognizer
+Train LBPH Face Recognizer with proper label mapping
 """
 
 import cv2
 import numpy as np
+import pickle
 from pathlib import Path
 import config
 import database
 from logger import get_logger
 
 logger = get_logger()
+
+# Global label map - label_id -> original_name
+LABEL_MAP = {}
 
 
 def _best_match(folder_name, person_map):
@@ -165,17 +169,40 @@ def train_model():
         config.TRAINER_DIR.mkdir(exist_ok=True)
         recognizer.save(str(config.TRAINER_FILE))
         
+        # Save label map
+        global LABEL_MAP
+        LABEL_MAP = label_names.copy()
+        label_map_path = config.TRAINER_DIR / "label_map.pkl"
+        with open(label_map_path, 'wb') as f:
+            pickle.dump(LABEL_MAP, f)
+        
         logger.info("Training completed successfully")
         logger.info(f"Model saved: {config.TRAINER_FILE}")
+        logger.info(f"Label map saved: {label_map_path}")
         logger.info(f"Trained {len(label_names)} users:")
         for lid, name in sorted(label_names.items()):
-            logger.info(f"  - {name}")
+            logger.info(f"  - Label {lid}: {name}")
         
         return True
         
     except Exception as e:
         logger.exception(f"Training failed: {e}")
         return False
+
+
+def load_label_map():
+    """Load label map from file."""
+    global LABEL_MAP
+    label_map_path = config.TRAINER_DIR / "label_map.pkl"
+    if label_map_path.exists():
+        try:
+            with open(label_map_path, 'rb') as f:
+                LABEL_MAP = pickle.load(f)
+            logger.info(f"Label map loaded: {LABEL_MAP}")
+            return LABEL_MAP
+        except Exception as e:
+            logger.error(f"Failed to load label map: {e}")
+    return {}
 
 
 if __name__ == "__main__":

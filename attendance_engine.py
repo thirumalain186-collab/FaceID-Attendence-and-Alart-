@@ -4,11 +4,12 @@ Attendance Engine v3 - PRODUCTION READY
 - Direct frame processing (NO temp files)
 - Smart face cache for speed
 - Stable Haar cascade detection
-- Optimized for Electron + Flask
+- Proper label map for recognition
 """
 
 import cv2
 import numpy as np
+import pickle
 import threading
 import time
 import hashlib
@@ -16,7 +17,6 @@ from datetime import datetime, date
 from pathlib import Path
 import config
 import database
-import email_sender
 from logger import get_logger
 
 logger = get_logger()
@@ -24,9 +24,11 @@ logger = get_logger()
 GPU_CONFIG = {
     'use_yolo': False,
     'use_gpu': False,
-    'frame_scale': 0.25,
     'frame_skip': 2,
 }
+
+# Image size for training and recognition (MUST be consistent)
+IMG_SIZE = (200, 200)
 
 print("[PRODUCTION] Attendance Engine v3 loaded")
 
@@ -39,6 +41,7 @@ class AttendanceEngine:
         self.cascade = None
         self.label_names = {}
         self.person_id_map = {}
+        self.label_map = {}  # label_id -> display_name (from pickle)
         
         self.marked_today = set()
         self.last_seen = {}
@@ -69,6 +72,18 @@ class AttendanceEngine:
         self.cascade = cv2.CascadeClassifier(cascade_path)
         logger.info(f"Haar cascade loaded: {cascade_path}")
         
+        # Load label map from pickle file
+        self.label_map = {}
+        label_map_path = config.TRAINER_DIR / "label_map.pkl"
+        if label_map_path.exists():
+            try:
+                with open(label_map_path, 'rb') as f:
+                    self.label_map = pickle.load(f)
+                logger.info(f"Label map loaded: {self.label_map}")
+            except Exception as e:
+                logger.error(f"Failed to load label map: {e}")
+        
+        # Load recognizer
         if config.TRAINER_FILE.exists():
             try:
                 import cv2.face as cv2_face
@@ -98,41 +113,37 @@ class AttendanceEngine:
         return matches[0][1]
     
     def reload_faces(self):
+        """Reload face data and use label map from pickle."""
         with self.face_lock:
             self.label_names = {}
             self.person_id_map = {}
             
-            # Build person map (same as train.py)
-            person_map = {}
-            for person in database.get_active_people():
-                name = person.get('name', '')
-                if not name:
-                    continue
-                safe_name = name.replace(" ", "_").lower()
-                person_map[safe_name] = {
-                    'id': person.get('id'),
-                    'name': name,
-                    'role': person.get('role', 'student').lower(),
-                    'roll': person.get('roll_number') or ''
-                }
+            # Use label map from pickle file (created by train.py)
+            if self.label_map:
+                for label_id, display_name in self.label_map.items():
+                    # Parse "Name (roll)" or just "Name"
+                    if '(' in display_name:
+                        name_part = display_name.split('(')[0].strip()
+                    else:
+                        name_part = display_name.strip()
+                    
+                    self.label_names[label_id] = {
+                        'id': None,
+                        'name': name_part.lower(),
+                        'original_name': name_part,
+                        'role': 'student',
+                        'roll': ''
+                    }
             
-            # Iterate sorted folders (MUST match training order)
-            for folder in sorted(config.DATASET_DIR.iterdir()):
-                if not folder.is_dir():
-                    continue
-                
-                matched = self._best_match(folder.name, person_map)
-                if not matched:
-                    continue
-                
-                label_id = len(self.label_names)
-                self.label_names[label_id] = {
-                    'id': matched['id'],
-                    'name': matched['name'].lower(),
-                    'original_name': matched['name'],
-                    'role': matched['role'],
-                    'roll': matched['roll']
-                }
+            # Also build person_id_map for DB lookup
+            for person in database.get_active_people():
+                pid = person.get('id')
+                name = person.get('name', '')
+                if pid and name:
+                    self.person_id_map[pid] = {'name': name.lower()}
+            
+            names = [v['original_name'] for v in self.label_names.values()]
+            logger.info(f"Loaded {len(self.label_names)} people: {names}")
                 if matched['id']:
                     self.person_id_map[matched['id']] = {'name': matched['name'].lower()}
             
@@ -274,48 +285,48 @@ class AttendanceEngine:
         if face_roi.size == 0:
             return
         
-        face_resized = cv2.resize(face_roi, (200, 200))
-        face_hash = hash(face_resized.tobytes()) % 10000
+        # Resize to 200x200 for consistent recognition
+        face_resized = cv2.resize(face_roi, IMG_SIZE)
         
-        if face_hash in self._face_cache:
-            label, confidence = self._face_cache[face_hash]
-        else:
-            if self.recognizer is None:
-                return
-            try:
-                label, confidence = self.recognizer.predict(face_resized)
-                
-                # Debug output
-                if self.frame_count % 30 == 0:
-                    face_info = label_names_snapshot.get(label, {})
-                    name = face_info.get('original_name', 'Unknown') if face_info else 'Unknown'
-                    print(f"[RECOG] Label={label}, Conf={confidence:.1f}, Name={name}")
-                
-                if len(self._face_cache) < self._face_cache_max:
-                    self._face_cache[face_hash] = (label, confidence)
-            except Exception as e:
-                print(f"[ERROR] Recognition failed: {e}")
-                return
+        if self.recognizer is None:
+            return
         
-        lbph_confidence = max(0, 100 - confidence)
-        
-        if confidence < 80:
-            face_info = label_names_snapshot.get(label, {})
+        try:
+            label, confidence = self.recognizer.predict(face_resized)
             
-            if face_info:
-                name = face_info['original_name']
-                role = face_info['role']
-                roll = face_info.get('roll', '')
-                person_id = face_info.get('id')
-                
-                self._tracked_faces[face_key]['name'] = f"{name}"
-                
-                if self.mode == "attendance":
-                    self._mark_attendance(name, roll, lbph_confidence, person_id)
-                elif self.mode == "monitoring":
-                    self._log_movement(name, role, person_id)
+            # Debug output every 30 frames
+            if self.frame_count % 30 == 0:
+                display_name = self.label_map.get(label, "Unknown")
+                print(f"[RECOG] Label={label}, Conf={confidence:.1f}, Name={display_name}")
+            
+        except Exception as e:
+            print(f"[ERROR] Recognition failed: {e}")
+            return
+        
+        # Confidence threshold: lower is better for LBPH
+        if confidence < 80:
+            # Get name from label map
+            display_name = self.label_map.get(label, "Unknown")
+            
+            # Parse name from "Name (roll)" format
+            if '(' in display_name:
+                name = display_name.split('(')[0].strip()
             else:
-                self._tracked_faces[face_key]['name'] = "Unknown"
+                name = display_name.strip()
+            
+            # Look up person_id from database
+            person_id = None
+            for pid, pinfo in self.person_id_map.items():
+                if pinfo['name'].lower() == name.lower():
+                    person_id = pid
+                    break
+            
+            self._tracked_faces[face_key]['name'] = name
+            
+            if self.mode == "attendance":
+                self._mark_attendance(name, confidence=max(0, 100-confidence), person_id=person_id)
+            elif self.mode == "monitoring":
+                self._log_movement(name, 'student', person_id)
         else:
             self._tracked_faces[face_key]['name'] = "UNKNOWN"
     
