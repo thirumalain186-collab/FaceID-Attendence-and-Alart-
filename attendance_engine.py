@@ -291,7 +291,7 @@ class AttendanceEngine:
             return
         
         # Skip invalid predictions (label=-1 or very high confidence)
-        if label < 0 or confidence > 150:
+        if label < 0 or confidence > 200:
             return
         
         # Get name from label map

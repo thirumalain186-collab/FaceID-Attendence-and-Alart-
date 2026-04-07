@@ -43,15 +43,31 @@ def _extract_roll_from_folder(folder_name):
     return ""
 
 
-def _load_image(image_path, target_size):
-    """Load and preprocess image. Returns grayscale numpy array or None."""
+def _load_image(image_path, target_size, cascade=None):
+    """Load and preprocess image with face detection. Returns grayscale numpy array or None."""
     try:
         img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
         if img is None:
             return None
         if img.shape[0] < 20 or img.shape[1] < 20:
             return None
-        img = cv2.resize(img, target_size)
+        
+        # Detect face within the image (important: training images are already cropped faces)
+        if cascade is not None:
+            faces = cascade.detectMultiScale(img, scaleFactor=1.05, minNeighbors=3, minSize=(30, 30))
+            if len(faces) > 0:
+                # Extract the detected face region
+                (x, y, w, h) = faces[0]
+                face_roi = img[y:y+h, x:x+w]
+                # Resize to target size
+                img = cv2.resize(face_roi, target_size)
+            else:
+                # If no face detected, just resize the whole image (fallback)
+                img = cv2.resize(img, target_size)
+        else:
+            # If no cascade provided, just resize (backwards compatibility)
+            img = cv2.resize(img, target_size)
+        
         return img
     except Exception:
         return None
@@ -60,6 +76,9 @@ def _load_image(image_path, target_size):
 def train_model():
     """Train the face recognition model."""
     logger.info("Starting model training")
+    
+    # Load cascade for face detection during training
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     
     faces = []
     labels = []
@@ -130,7 +149,7 @@ def train_model():
         
         valid_count = 0
         for image_file in image_files:
-            img = _load_image(image_file, target_size)
+            img = _load_image(image_file, target_size, cascade)
             if img is None:
                 skipped_images += 1
                 logger.debug(f"Skipped invalid image: {image_file.name}")

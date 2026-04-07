@@ -36,7 +36,7 @@ cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface
 print("Camera opened!")
 print("\nLook at camera and press SPACE to capture photo")
 print("Press 'Q' to finish (minimum 15 photos recommended)")
-print()
+print("TIP: Stand closer to camera for better face capture\n")
 
 count = 0
 while True:
@@ -45,7 +45,8 @@ while True:
         break
     
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = cascade.detectMultiScale(gray, 1.1, 3, minSize=(50, 50))
+    # Use more lenient detection to get larger faces (not just tiny ones)
+    faces = cascade.detectMultiScale(gray, 1.05, 3, minSize=(80, 80))
     
     # Draw box around detected face
     for (x, y, w, h) in faces:
