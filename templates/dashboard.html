@@ -39,6 +39,7 @@
         .nav-links { margin-top: 10px; }
         .nav-links a { color: white; text-decoration: none; margin-right: 20px; padding: 8px 15px; background: rgba(255,255,255,0.1); border-radius: 5px; }
         .nav-links a:hover { background: rgba(255,255,255,0.2); }
+        .btn-face-detection { background: #4ecca3 !important; color: #1a1a2e !important; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -50,6 +51,7 @@
         <div class="nav-links">
             <a href="/register">+ Register</a>
             <a href="/analytics">📊 Analytics</a>
+            <a href="#" onclick="openFaceDetection()" class="btn-face-detection">📷 Face Detection (Fast)</a>
         </div>
     </div>
     
@@ -188,6 +190,14 @@
                 await fetch('/api/v1/email/test', { method: 'POST' });
                 alert('Test email sent!');
             } catch (e) { alert('Error sending test email'); }
+        }
+        
+        function openFaceDetection() {
+            if (window.electronAPI) {
+                window.electronAPI.openFaceDetection();
+            } else {
+                window.open('/face-detection.html', '_blank');
+            }
         }
         
         loadAttendance();

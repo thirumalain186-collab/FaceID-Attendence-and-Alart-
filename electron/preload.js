@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFlaskStatus: () => ipcRenderer.invoke('flask-status'),
   restartFlask: () => ipcRenderer.send('restart-flask'),
   
+  // Face detection page
+  openFaceDetection: () => ipcRenderer.send('open-face-detection'),
+  
   // Get app info
   getAppVersion: () => require('electron').app.getVersion(),
   

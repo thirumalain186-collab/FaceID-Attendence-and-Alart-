@@ -201,4 +201,12 @@ ipcMain.on('restart-flask', async () => {
   }
 });
 
+// Open face detection page
+ipcMain.on('open-face-detection', () => {
+  if (mainWindow) {
+    const faceDetectionPath = path.join(__dirname, 'face-detection.html');
+    mainWindow.loadFile(faceDetectionPath);
+  }
+});
+
 log.info('App initialized');
