@@ -3,7 +3,7 @@ Smart Attendance System - Web Dashboard
 Optional Flask-based web interface for attendance management
 """
 
-from flask import Flask, render_template, jsonify, request, Response, redirect, url_for
+from flask import Flask, render_template, jsonify, request, Response, redirect, url_for, session
 from flask_cors import CORS
 import io
 import csv
